@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" role="img" aria-label="agentmeter: weekly token usage for your coding agents">
+  <rect width="900" height="420" fill="#f5f4f0"/>
+  <g transform="translate(90 130)">
+    <rect width="160" height="160" rx="36" fill="#1c1c1e"/>
+    <g fill="#ffffff" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif">
+      <text x="80" y="68" font-size="24" font-weight="600" letter-spacing="1.5" fill-opacity="0.75">TOKENS</text>
+      <text x="80" y="113" font-size="43" font-weight="600">1.2M</text>
+    </g>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif">
+    <text x="300" y="215" font-size="72" font-weight="700" fill="#1c1c1e">agentmeter</text>
+    <text x="303" y="262" font-size="25" fill="#6b6b6b">weekly token usage for your coding agents</text>
+  </g>
+</svg>
