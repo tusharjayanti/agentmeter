@@ -1,0 +1,1 @@
+{"sessionId": "g1", "messages": [{"id": "u1", "type": "user", "timestamp": "2026-11-03T18:45:08.094236Z", "content": "research which vector db to use, compare options"}, {"id": "a1", "type": "gemini", "timestamp": "2026-11-03T18:45:08.094236Z", "model": "gemini-2.5-pro", "tokens": {"input": 9000, "cached": 4000, "output": 700, "thoughts": 300}}]}

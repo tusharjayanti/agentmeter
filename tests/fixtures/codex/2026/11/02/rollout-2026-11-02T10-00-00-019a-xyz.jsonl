@@ -1,0 +1,5 @@
+{"timestamp": "2026-11-03T18:45:08.094236Z", "type": "session_meta", "payload": {"id": "019a-xyz", "cwd": "/Users/x/code/shop"}}
+{"timestamp": "2026-11-03T18:45:08.094236Z", "type": "turn_context", "payload": {"model": "gpt-5.1-codex"}}
+{"timestamp": "2026-11-03T18:45:08.094236Z", "type": "event_msg", "payload": {"type": "user_message", "message": "implement the checkout endpoint"}}
+{"timestamp": "2026-11-03T18:45:08.094236Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 13863, "cached_input_tokens": 2432, "output_tokens": 302, "reasoning_output_tokens": 256, "total_tokens": 14165}, "total_token_usage": {}}}}
+{"timestamp": "2026-11-03T18:45:08.094236Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 20000, "cached_input_tokens": 18000, "output_tokens": 500, "reasoning_output_tokens": 0, "total_tokens": 20500}}}}

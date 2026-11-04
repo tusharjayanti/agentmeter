@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentmeter"
+version = "0.1.0"
+description = "Token usage and model-routing metrics for agentic coding tools (Claude Code, Codex CLI, Gemini CLI, Aider, or your own)."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = ["Programming Language :: Python :: 3", "License :: OSI Approved :: MIT License", "Operating System :: OS Independent"]
+
+[project.scripts]
+agentmeter = "agentmeter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agentmeter*"]

@@ -1,0 +1,102 @@
+{
+  "tiers": {
+    "economy": [
+      "haiku",
+      "(^|-)mini\\b",
+      "(^|-)nano\\b",
+      "flash-lite",
+      "flash-8b"
+    ],
+    "premium": [
+      "fable",
+      "mythos",
+      "gpt-5(\\.\\d)?-pro",
+      "o3-pro",
+      "deepthink",
+      "codex-max"
+    ],
+    "strong": [
+      "opus",
+      "gemini-.*-pro",
+      "gpt-5(\\.\\d)?-codex$",
+      "o3$"
+    ],
+    "standard": [
+      "sonnet",
+      "gpt-5",
+      "gpt-4",
+      "o4",
+      "gemini-.*-flash",
+      "codex"
+    ]
+  },
+  "policy": {
+    "premium": [
+      "design",
+      "research"
+    ],
+    "strong": [
+      "build",
+      "refactor"
+    ],
+    "standard": [
+      "fix",
+      "test",
+      "docs",
+      "ops",
+      "explain"
+    ],
+    "economy": [
+      "trivial"
+    ]
+  },
+  "categories": [
+    [
+      "trivial",
+      "\\b(typo|format|lint|one[- ]liner|quick|small change|rename variable|what does this do|explain this)\\b"
+    ],
+    [
+      "docs",
+      "\\b(readme|docs?|documentation|comment|docstring|changelog|write ?up)\\b"
+    ],
+    [
+      "ops",
+      "\\b(deploy|ci|cd|pipeline|docker|k8s|kubernetes|terraform|fly\\.io|vercel|github actions|release|tag v?\\d)\\b"
+    ],
+    [
+      "test",
+      "\\b(test|tests|unit test|integration test|coverage|pytest|jest|junit|spec)\\b"
+    ],
+    [
+      "design",
+      "\\b(architect|architecture|design (the|a|an)|system design|high[- ]level|trade[- ]?offs?|schema design|data model|roadmap|rfc|adr)\\b"
+    ],
+    [
+      "research",
+      "\\b(research|compare|comparison|evaluate|investigate|survey|options|pros and cons|which (library|framework|approach|db|database)|should (i|we) use)\\b"
+    ],
+    [
+      "refactor",
+      "\\b(refactor|clean ?up|restructure|rename|extract|simplify|migrate)\\b"
+    ],
+    [
+      "fix",
+      "\\b(fix|bug|error|fail(s|ing|ed)?|broken|crash|exception|stack ?trace|not working|debug|why (does|is|isn't|doesn't))\\b"
+    ],
+    [
+      "build",
+      "\\b(implement|build|create|add (a|an|the|support)|scaffold|new (feature|endpoint|service|module|page|component)|wire up|integrate|set up)\\b"
+    ],
+    [
+      "explain",
+      "\\b(how (do|does|can|should|would) (i|we|you|it|this)|what (is|are|does|do)|why|explain|understand|walk me through)\\b|\\?\\s*$"
+    ]
+  ],
+  "prompts_for_classification": 5,
+  "period": {
+    "start": null,
+    "length": "1w"
+  },
+  "roots": {},
+  "tools": []
+}
