@@ -1,0 +1,56 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.9"}
+          - {os: ubuntu-latest, python: "3.x"}
+          - {os: macos-latest, python: "3.x"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: pytest
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest -q tests
+      - name: installer syntax
+        run: bash -n install.sh
+
+  linux-install:
+    # The only place agentmeter runs on Linux until people try it: install without the
+    # setup questions, then check the CLI and the top-bar outputs work from the install.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh
+        run: ./install.sh --no-init
+      - name: installed CLI
+        run: |
+          ~/.local/bin/agentmeter --tools
+          ~/.local/bin/agentmeter --status
+          ~/.local/bin/agentmeter --status-json
+          ~/.local/bin/agentmeter --today
+      - name: top-bar plugin
+        run: PATH="$HOME/.local/bin:$PATH" python3 widget/agentmeter.1h.py
+
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build the menu bar app
+        run: swiftc -O -swift-version 5 macos/AgentmeterBar.swift -o agentmeter-bar
