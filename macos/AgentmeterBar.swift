@@ -155,6 +155,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var loading = false
     var timer: Timer?
     var stacked = true
+    var shotTaken = false
     var caption = "TOKENS"
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -167,6 +168,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         setTitle("…")
         let menu = NSMenu()
+        menu.autoenablesItems = false   // info lines have no action; without this macOS greys them out
         menu.delegate = self
         item.menu = menu
         refresh()
@@ -195,6 +197,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.snap = s
                 self.loading = false
                 self.setTitle(s.error == nil ? fmt(s.fresh(s.thisPeriod)) : "—")
+                #if SCREENSHOT
+                // screenshot builds only (swiftc -D SCREENSHOT): open the menu once data has loaded
+                if !self.shotTaken { self.shotTaken = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.item.button?.performClick(nil) } }
+                #endif
                 self.item.button?.toolTip = s.error ?? "agentmeter: tokens this \(s.name)"
             }
         }
