@@ -65,11 +65,11 @@ def test_report_compares_with_previous_week(tmp_path):
     weekly, ss = aggregate(sessions, P, by_period(MON, keys))
     assert report.save(tmp_path, weekly, ss, {}, keys, MON) == ["2019-12-30", "2020-01-06"]
     md = (tmp_path / "2020-01-06.md").read_text()
-    assert "**200 tokens** this week" in md and "Previous week (Mon 30 Dec – Sun 5 Jan 2020): 100 · **+100%**" in md
-    assert "| claude-opus-5-5 | claude-code | 150 | 100 | +50% |" in md and "| claude-sonnet-5-5 | claude-code | 50 | 0 | new |" in md
+    assert "**200 tokens** this week" in md and "Previous week (Mon 30 Dec – Sun 5 Jan 2020): 100 · **▲ 100%**" in md
+    assert "| claude-opus-5-5 | claude-code | 150 | 100 | ▲ 50% |" in md and "| claude-sonnet-5-5 | claude-code | 50 | 0 | new |" in md
     d = json.loads((tmp_path / "2020-01-06.json").read_text())
     assert d["previous"] == {"period": "2019-12-30", "source": "report", "fresh": 100, "total": 100, "change_pct": 100.0}
     # a model used last week but not this week still shows up, at 0
     weekly2, ss2 = aggregate(sessions[1:2], P, by_period(MON, keys))
     md2 = report.render_md("2020-01-13", [], [], MON, prev_rows=[r for r in weekly2 if r["period"] == "2020-01-06"])
-    assert "| claude-opus-5-5 | claude-code | 0 | 150 | -100% |" in md2
+    assert "| claude-opus-5-5 | claude-code | 0 | 150 | ▼ 100% |" in md2

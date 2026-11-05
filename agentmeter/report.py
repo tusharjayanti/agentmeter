@@ -11,7 +11,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
-from .core import Periods
+from .core import Periods, change_label
 
 DEFAULT_DIR = "~/.local/share/agentmeter/reports"
 FOOTNOTE = ("Tokens are fresh tokens: input + cache writes + output. Cache reads (the model re-reading the "
@@ -24,9 +24,7 @@ def _fmt(n):
 
 
 def _change(cur, prev) -> str:
-    if not prev:
-        return "new" if cur else "–"
-    return f"{100 * (cur - prev) / prev:+.0f}%"
+    return change_label(cur, prev)
 
 
 def _cell(s: str) -> str:
@@ -75,7 +73,7 @@ def render_md(wk: str, rows: list[dict], sessions: list[dict], periods: Periods,
         out.append(f"| {r['model']} | {r['tool']} | {_fmt(r['fresh'])} | {_fmt(pv) if prev_rows else '–'} | "
                    f"{_change(r['fresh'], pv) if prev_rows else '–'} | {r['sessions']} | {r['turns']} |")
     for (tool, model), pv in sorted(prev_by.items(), key=lambda x: -x[1]):   # used last time, not this time
-        out.append(f"| {model} | {tool} | 0 | {_fmt(pv)} | -100% | 0 | 0 |")
+        out.append(f"| {model} | {tool} | 0 | {_fmt(pv)} | {_change(0, pv)} | 0 | 0 |")
     out += ["", f"Including cache reads: {_fmt(s['total'])} this {name}"
             + (f", {_fmt(p['total'])} the previous {name}" if prev_rows else "") + "."]
     if s["auto_tokens"]:

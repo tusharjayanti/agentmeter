@@ -316,6 +316,14 @@ class Periods:
         return f"{size} windows, {frm}"
 
 
+def change_label(cur: float, prev: float) -> str:
+    """'▲ 25%', '▼ 19%', 'no change', or 'new' when there was nothing before."""
+    if not prev:
+        return "new" if cur else "–"
+    p = round(100 * (cur - prev) / prev)
+    return "no change" if p == 0 else f"{'▲' if p > 0 else '▼'} {abs(p)}%"
+
+
 def span_label(a: dt.date, b: dt.date) -> str:
     if a == b:
         return f"{a:%a} {a.day} {a:%b %Y}"

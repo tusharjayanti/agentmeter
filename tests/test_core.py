@@ -134,6 +134,12 @@ def test_parse_window_arguments():
     assert _per("2026-10-31").parse("2026-11-04") == "2026-10-31"
 
 
+def test_change_label():
+    from agentmeter.core import change_label
+    assert change_label(125, 100) == "▲ 25%" and change_label(81, 100) == "▼ 19%"
+    assert change_label(100, 100) == "no change" and change_label(5, 0) == "new" and change_label(0, 0) == "–"
+
+
 def test_parse_since():
     now = dt.datetime(2026, 11, 4, 15, 30).astimezone()
     assert parse_since("6h", now) == now - dt.timedelta(hours=6)

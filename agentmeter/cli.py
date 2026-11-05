@@ -21,7 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import adapters, report
-from .core import (Periods, Policy, aggregate, by_period, by_range, config_path, load_config, on_policy_pct,
+from .core import (Periods, Policy, aggregate, by_period, by_range, change_label, config_path, load_config, on_policy_pct,
                    parse_since, since, span_label, validate)
 
 
@@ -300,7 +300,7 @@ def main(argv=None):
         if not adhoc:
             prev = prev_fresh.get(per.previous(wk), 0)
             if prev:
-                line += f" · {st.yellow}{100 * (fresh - prev) / prev:+.0f}%{st.reset} vs previous {per.name} ({fmt(prev)})"
+                line += f" · {st.yellow}{change_label(fresh, prev)}{st.reset} vs previous {per.name} ({fmt(prev)})"
         print(line)
         width = max([len(r["model"][:26]) for r in rows] + [5])
         tier = f"{'tier':<10}" if routing else ""

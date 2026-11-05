@@ -74,7 +74,14 @@ if not rows:
 for r in rows:
     print(f"{r['model'][:26]:<26} {fmt(r['fresh']):>7} | {MONO} trim=false")
 print("---")
-change = f"   (this {name} so far: {100 * (fresh - prev) / prev:+.0f}%)" if prev else ""
+def change_label(cur, prev):
+    if not prev:
+        return "new" if cur else "–"
+    p = round(100 * (cur - prev) / prev)
+    return "no change" if p == 0 else f"{'▲' if p > 0 else '▼'} {abs(p)}%"
+
+
+change = f"   this {name} so far {change_label(fresh, prev)}" if prev else ""
 print(f"Last {name}: {fmt(prev)}{change} | {GRAY} size=11")
 print("---")
 reports = sorted(REPORTS.glob("????-??-??.md"))

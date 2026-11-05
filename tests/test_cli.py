@@ -99,7 +99,7 @@ def _two_weeks(tmp_path):
 def test_single_week_is_compared_with_the_one_before(tmp_path):
     cfg = _two_weeks(tmp_path)
     r = run(tmp_path, "--period", "2026-11-04", cfg=cfg)
-    assert "150 tokens · 1 session · +50% vs previous week (100)" in r.stdout and "Oct" not in r.stdout.split("\n")[1]
+    assert "150 tokens · 1 session · ▲ 50% vs previous week (100)" in r.stdout and "Oct" not in r.stdout.split("\n")[1]
     d = json.loads(run(tmp_path, "--period", "2026-11-04", "--json", cfg=cfg).stdout)
     assert {w["period"] for w in d["periods"]} == {"2026-11-02"}          # the earlier week is only used for the comparison
 
