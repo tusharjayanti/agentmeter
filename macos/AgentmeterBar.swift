@@ -17,7 +17,9 @@ import AppKit
 let home = FileManager.default.homeDirectoryForCurrentUser
 let env = ProcessInfo.processInfo.environment
 let configURL = URL(fileURLWithPath: (env["AGENTMETER_CONFIG"] ?? "~/.config/agentmeter/config.json").expandingTilde)
-let reportsURL = home.appendingPathComponent(".local/share/agentmeter/reports")
+// AGENTMETER_REPORTS: read reports from another folder (e.g. demo data for screenshots)
+let reportsURL = env["AGENTMETER_REPORTS"].map { URL(fileURLWithPath: $0.expandingTilde) }
+    ?? home.appendingPathComponent(".local/share/agentmeter/reports")
 
 extension String {
     var expandingTilde: String { (self as NSString).expandingTildeInPath }
