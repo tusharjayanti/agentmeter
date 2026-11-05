@@ -93,6 +93,45 @@ func stackedLabel(caption: String, value: String) -> NSImage {
     return img
 }
 
+/// Bar colours by rank, most-used model first.
+let palette: [NSColor] = [.systemBlue, .systemTeal, .systemPurple, .systemOrange, .systemPink, .systemGreen]
+
+/// "▲ 25%", "▼ 19%", "no change", or "new" when there was nothing before.
+func changeLabel(_ cur: Double, _ prev: Double) -> String {
+    guard prev > 0 else { return cur > 0 ? "new" : "–" }
+    let p = Int((100 * (cur - prev) / prev).rounded())
+    return p == 0 ? "no change" : "\(p > 0 ? "▲" : "▼") \(abs(p))%"
+}
+
+/// A rounded bar: a faint track with the share filled in the model's colour (at least a sliver when used).
+func shareBar(_ share: Double, colour: NSColor, width: CGFloat = 96, height: CGFloat = 7) -> NSImage {
+    NSImage(size: NSSize(width: width, height: height), flipped: false) { r in
+        NSColor.quaternaryLabelColor.setFill()
+        NSBezierPath(roundedRect: r, xRadius: height / 2, yRadius: height / 2).fill()
+        if share > 0 {
+            let w = max(height, r.width * CGFloat(min(1, share)))
+            colour.setFill()
+            NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: w, height: r.height), xRadius: height / 2, yRadius: height / 2).fill()
+        }
+        return true
+    }
+}
+
+/// "claude-opus-5-5   [bar]   1.23M": name, the model's share of the window as a bar, the value.
+func modelRow(_ model: String, width: Int, share: Double, value: Double, colour: NSColor) -> NSAttributedString {
+    let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    let name = model.count > width ? String(model.prefix(width)) : model.padding(toLength: width, withPad: " ", startingAt: 0)
+    let v = fmt(value)
+    let out = NSMutableAttributedString(string: name + "  ", attributes: [.font: mono, .foregroundColor: NSColor.labelColor])
+    let bar = NSTextAttachment()
+    bar.image = shareBar(share, colour: colour)
+    bar.bounds = NSRect(x: 0, y: 1, width: 96, height: 7)
+    out.append(NSAttributedString(attachment: bar))
+    out.append(NSAttributedString(string: String(repeating: " ", count: max(2, 9 - v.count)) + v,
+                                  attributes: [.font: mono, .foregroundColor: NSColor.labelColor]))
+    return out
+}
+
 struct Row {
     let period, tool, model: String
     let fresh, total: Double
@@ -202,6 +241,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 #if SCREENSHOT
                 // screenshot builds only (swiftc -D SCREENSHOT): open the menu once data has loaded
                 if !self.shotTaken { self.shotTaken = true
+                    // move the pointer out of the way so no row is highlighted in the picture
+                    CGWarpMouseCursorPosition(CGPoint(x: 0, y: NSScreen.main?.frame.height ?? 900))
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.item.button?.performClick(nil) } }
                 #endif
                 self.item.button?.toolTip = s.error ?? "agentmeter: tokens this \(s.name)"
@@ -214,8 +255,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()   // the menu shows the last snapshot; the bar title updates when this finishes
     }
 
-    func text(_ s: String, size: CGFloat = 13, color: NSColor = .labelColor, mono: Bool = false) -> NSMenuItem {
-        let it = NSMenuItem(title: s, action: nil, keyEquivalent: "")
+    func text(_ s: String, size: CGFloat = 13, color: NSColor = .labelColor, mono: Bool = false, action: Selector? = nil) -> NSMenuItem {
+        let it = NSMenuItem(title: s, action: action, keyEquivalent: "")
+        if action != nil { it.target = self }
         let font = mono ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) : NSFont.menuFont(ofSize: size)
         it.attributedTitle = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: color])
         it.isEnabled = true
@@ -243,6 +285,29 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(at: marker.deletingLastPathComponent(), withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: marker.path, contents: nil)
         runSetup()
+    }
+
+    /// Open a Terminal window running agentmeter with these arguments. A .command file opens in
+    /// Terminal and runs, with no Automation permission prompt.
+    func showInTerminal(_ args: String) {
+        guard let bin = findAgentmeter() else { return }
+        let f = home.appendingPathComponent(".local/share/agentmeter/view.command")
+        let body = "#!/bin/bash\nclear\n'\(bin)' \(args)\n"
+        try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? body.write(to: f, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: f.path)
+        NSWorkspace.shared.open(f)
+    }
+
+    @objc func showThisPeriod() { showInTerminal("--period this") }
+
+    @objc func showLastPeriod() {
+        let report = reportsURL.appendingPathComponent("\(snap.lastPeriod).md")
+        if FileManager.default.fileExists(atPath: report.path) {
+            NSWorkspace.shared.open(report)
+        } else {
+            showInTerminal("--period last")
+        }
     }
 
     @objc func runSetup() {
@@ -281,23 +346,45 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             let cur = s.fresh(s.thisPeriod), prev = s.fresh(s.lastPeriod)
             let sessions = s.sessions(s.thisPeriod)
-            menu.addItem(text("This \(s.name) (since \(since(s.thisPeriod)))", size: 12, color: .secondaryLabelColor))
-            menu.addItem(text("\(fmt(cur)) tokens · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15))
-            menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads", size: 11, color: .secondaryLabelColor))
+            let show = #selector(showThisPeriod)
+            menu.addItem(text("This \(s.name) (since \(since(s.thisPeriod)))", size: 12, color: .secondaryLabelColor, action: show))
+            menu.addItem(text("\(fmt(cur)) tokens · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15, action: show))
+            menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads", size: 11, color: .secondaryLabelColor, action: show))
             menu.addItem(.separator())
-            let rows = s.rows(s.thisPeriod)
-            if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor)) }
-            let width = min(26, rows.map { $0.model.count }.max() ?? 10)
+            // one colour per model, the same in this week's rows and last week's submenu
+            let rows = s.rows(s.thisPeriod), lastRows = s.rows(s.lastPeriod)
+            var colour: [String: NSColor] = [:]
+            for r in rows + lastRows where colour[r.model] == nil { colour[r.model] = palette[colour.count % palette.count] }
+            let width = min(24, (rows + lastRows).map { $0.model.count }.max() ?? 10)
+            if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: show)) }
             for r in rows {
-                let name = r.model.count > width ? String(r.model.prefix(width)) : r.model.padding(toLength: width, withPad: " ", startingAt: 0)
-                let val = fmt(r.fresh)
-                menu.addItem(text("\(name)  \(String(repeating: " ", count: max(0, 7 - val.count)))\(val)", size: 12, mono: true))
+                let it = NSMenuItem(title: r.model, action: show, keyEquivalent: "")
+                it.target = self
+                it.attributedTitle = modelRow(r.model, width: width, share: cur > 0 ? r.fresh / cur : 0, value: r.fresh, colour: colour[r.model]!)
+                it.toolTip = "\(r.tool) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · click for the full breakdown"
+                menu.addItem(it)
             }
             menu.addItem(.separator())
-            var last = "Last \(s.name): \(fmt(prev))"
-            if prev > 0 { last += String(format: "   (this \(s.name) so far: %+.0f%%)", 100 * (cur - prev) / prev) }
-            menu.addItem(text(last, size: 12, color: .secondaryLabelColor))
-            if let label = s.labels[s.lastPeriod] { menu.addItem(text(label, size: 11, color: .tertiaryLabelColor)) }
+            // last week: total and change here, its models in a submenu
+            let last = NSMenuItem(title: "Last \(s.name)", action: nil, keyEquivalent: "")
+            let change = prev > 0 ? "   this \(s.name) so far \(changeLabel(cur, prev))" : ""
+            last.attributedTitle = NSAttributedString(string: "Last \(s.name): \(fmt(prev))\(change)",
+                                                      attributes: [.font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.labelColor])
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            if let label = s.labels[s.lastPeriod] { sub.addItem(text(label, size: 11, color: .secondaryLabelColor)) }
+            for r in lastRows {
+                let it = NSMenuItem(title: r.model, action: #selector(showLastPeriod), keyEquivalent: "")
+                it.target = self
+                it.attributedTitle = modelRow(r.model, width: width, share: prev > 0 ? r.fresh / prev : 0, value: r.fresh, colour: colour[r.model]!)
+                sub.addItem(it)
+            }
+            if lastRows.isEmpty { sub.addItem(text("No sessions", color: .secondaryLabelColor)) }
+            sub.addItem(.separator())
+            let hasReport = FileManager.default.fileExists(atPath: reportsURL.appendingPathComponent("\(s.lastPeriod).md").path)
+            sub.addItem(action(hasReport ? "Open last \(s.name)'s report" : "Show last \(s.name) in Terminal", #selector(showLastPeriod)))
+            last.submenu = sub
+            menu.addItem(last)
         }
         menu.addItem(.separator())
         let reports = ((try? FileManager.default.contentsOfDirectory(atPath: reportsURL.path)) ?? [])
