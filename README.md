@@ -1,96 +1,111 @@
-# agentmeter
+<p align="center">
+  <img src="assets/agentmeter-mark.svg" width="88" alt="agentmeter">
+</p>
 
-<img src="assets/agentmeter-mark.svg" width="72" alt="">
+<h1 align="center">agentmeter</h1>
 
-**How many tokens did your coding agents use this week?**
+<p align="center"><strong>Your coding agents' token usage, every week.</strong></p>
 
-agentmeter reads the session logs your coding tools already keep on your machine and shows your token usage per model, week by week, compared with the week before. Nothing leaves your machine: no network, no API keys, no accounts.
+<p align="center">
+  <a href="https://github.com/tusharjayanti/agentmeter/actions/workflows/tests.yml"><img src="https://github.com/tusharjayanti/agentmeter/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
+  <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python 3.9+">
+  <img src="https://img.shields.io/badge/dependencies-none-2ea44f" alt="no dependencies">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-555" alt="macOS and Linux">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
-<img src="docs/images/menubar.png" width="728" alt="The menu bar showing TOKENS 2.18M next to the system icons">
+<p align="center">
+  <img src="docs/images/hero.png" alt="The agentmeter menu bar item showing TOKENS 2.18M, with its menu open: this week's tokens and sessions, tokens per model, and last week's total">
+</p>
 
-<img src="docs/images/menu.png" width="327" alt="The menu: this week's tokens and sessions, tokens per model, last week's total, report and settings links">
+<p align="center"><sub>Screenshots use demo data.</sub></p>
 
-_Screenshots use demo data._
+## The problem
 
-## Install
+You use Claude Code, Codex or Gemini CLI every day, and you can't easily answer: how many tokens did I use this week? On which models? More or less than last week?
 
-macOS and Linux. Needs Python 3.9+; nothing else to install.
+The answer is already on your disk. Every one of these tools writes a session log with every model call and its token counts. agentmeter reads those logs and turns them into a number in your menu bar and a report at the end of every week. Nothing leaves your machine.
+
+## Get started
 
 ```sh
-xcode-select --install       # macOS only, once: provides python3 and swiftc
 git clone https://github.com/tusharjayanti/agentmeter
 cd agentmeter
 ./install.sh
 ```
 
-The installer asks a few questions (your tools, and when your week starts), then sets up:
+The installer asks which tools you use and when your week starts, then sets up three things:
 
 - the `agentmeter` command, in `~/.local/bin`
-- a report job that saves each finished week (runs hourly and at login; does nothing until a week ends)
-- on macOS, the menu bar item, started at login. On Linux: a GNOME top-bar plugin ([Argos](https://github.com/p-e-w/argos)), or `agentmeter --status` for Waybar, Polybar or tmux ([snippets](docs/configuration.md#linux-status-bars))
+- a background job that saves a report when each week ends
+- on macOS, the menu bar item, started at login
+
+It needs Python 3.9 or newer and nothing else. On a Mac without developer tools, run `xcode-select --install` first: it provides Python and the compiler for the menu bar app.
+
+## Always in view
+
+The menu bar shows the week's tokens so far. Click it for the breakdown by model, last week's total, and the latest report.
+
+On Linux, the same number goes in your top bar: a GNOME extension through [Argos](https://github.com/p-e-w/argos), or one line for Waybar, Polybar or tmux ([snippets](docs/configuration.md#linux-status-bars)).
+
+## Any range, any time
+
+<p align="center">
+  <img src="docs/images/terminal.png" width="760" alt="agentmeter in a terminal: this week's tokens, the change from last week, and a table of models with share bars">
+</p>
+
+```sh
+agentmeter                     # the last 4 weeks, each compared with the week before
+agentmeter --today             # or --since 6h, --since 3d, --from 2026-10-01 --to 2026-10-15
+agentmeter --period last       # one week: this, last, or any date in it
+agentmeter --json              # everything, for your own scripts
+```
+
+## A report every week
+
+<p align="center">
+  <img src="docs/images/report.png" width="760" alt="A weekly report: total tokens, the change from the previous week, and a per-model table with previous figures">
+</p>
+
+When a week ends, agentmeter saves it to `~/.local/share/agentmeter/reports/`, as Markdown to read and JSON for scripts. Reports are written once and kept. Claude Code deletes its logs after 30 days, so the saved reports become your history.
+
+"Tokens" means fresh tokens: input, cache writes and output. Cache reads, where the model re-reads the conversation at a fraction of the price, are counted separately.
+
+## Make it yours
 
 Change your answers any time with `agentmeter init`, or **Change setup…** in the menu.
 
-## Use
+| Setting | What it does |
+|---|---|
+| `period` | when collection begins, and how long a window is: a week from any day, two weeks, a month, ten days |
+| `tools` | which tools to read |
+| `widget` | the menu bar look: a caption over the number, or an icon beside it |
+| `routing` | optional: flag sessions where an expensive model did routine work |
 
-```sh
-agentmeter                    # the last 4 weeks, per model
-agentmeter --today            # any time range: --since 6h, --since 3d, --from 2026-10-01 --to 2026-10-15
-agentmeter --period last      # one week: this, last, or any date in it
-agentmeter --status           # one line for a status bar: TOKENS 1.13M
-agentmeter check              # check your config and see how your logs are read
-```
+Every setting, the full command line and uninstall steps are in [docs/configuration.md](docs/configuration.md).
 
-## Weekly report
+## Why agentmeter
 
-When a week ends, a report is saved to `~/.local/share/agentmeter/reports/` as Markdown to read and JSON for scripts:
+- **Nothing to install.** About 1,700 lines of standard-library Python, plus one Swift file for the menu bar. No Node, no pip, no Electron.
+- **No network.** It never connects to anything: no telemetry, no update checks, no pricing downloads.
+- **Your history is plain files.** One Markdown and one JSON file per week, readable without agentmeter.
 
-```
-# agentmeter: Fri 30 Oct – Thu 5 Nov 2026
-
-2.18M tokens this week · 5 sessions
-Previous week (Fri 23 Oct – Thu 29 Oct 2026): 1.75M · +25%
-
-| model             | tool        | tokens | previous week | change |
-| claude-opus-5-5   | claude-code |  1.23M |          900k |   +37% |
-| gpt-5.1-codex     | codex       |   610k |          520k |   +17% |
-| claude-sonnet-5-5 | claude-code |   280k |          330k |   -15% |
-| claude-haiku-5-5  | claude-code |    60k |             0 |    new |
-```
-
-Reports are written once and never recomputed, because tools delete old logs (Claude Code after 30 days). The saved reports are your history.
-
-"Tokens" means fresh tokens: input, cache writes and output. Cache reads (the model re-reading the conversation, billed at a fraction of the price) are shown separately.
-
-## Configure
-
-Setup writes `~/.config/agentmeter/config.json`. The settings you're most likely to change:
-
-| Setting | Default | What it does |
-|---|---|---|
-| `period` | `{"start": null, "length": "1w"}` | when collection begins, and how long each window is: `1w`, `2w`, `1m`, `10d`… |
-| `tools` | every tool with logs | which tools to read |
-| `widget` | `{"style": "stacked"}` | the menu bar look; `"icon"` shows an icon and the number |
-| `routing` | `false` | also flag sessions where an expensive model did routine work |
-
-Everything else is in [docs/configuration.md](docs/configuration.md).
-
-## Supported tools
+## Works with
 
 | Tool | Status |
 |---|---|
 | Claude Code | tested on real logs |
-| OpenAI Codex CLI, Gemini CLI, Aider | built from their documented formats, tested on sample files only |
+| OpenAI Codex CLI, Gemini CLI, Aider | built from their documented formats; tested on sample files only |
 | Anything else | export to a [simple JSONL format](docs/adapters.md#your-own-tool) |
 
 ## Help wanted
 
-- **Linux users:** the installer, the GNOME plugin and the Waybar/Polybar output have only run in CI. Try it and [open an issue](https://github.com/tusharjayanti/agentmeter/issues) with what you find.
-- **Codex CLI, Gemini CLI and Aider users:** does `agentmeter` read your logs correctly?
-- **New tools:** Cursor, GitHub Copilot CLI and OpenCode need an adapter, one file each ([how](docs/adapters.md#writing-an-adapter)).
+- **Linux users:** the installer and top-bar output have only run in CI. Try it and [open an issue](https://github.com/tusharjayanti/agentmeter/issues) with what you find.
+- **Codex CLI, Gemini CLI and Aider users:** tell us whether your logs are read correctly.
+- **More tools:** Cursor, GitHub Copilot CLI and OpenCode each need one adapter file ([how](docs/adapters.md#writing-an-adapter)).
 
 Run the tests with `python3 -m pytest -q tests`.
 
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -21,13 +21,31 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import adapters, report
-from .core import (Periods, Policy, aggregate, by_period, by_range, config_path, load_config, on_policy_pct,
+from .core import (Periods, Policy, aggregate, by_period, by_range, change_label, config_path, load_config, on_policy_pct,
                    parse_since, since, span_label, validate)
 
 
 def fmt(n):
     n = float(n)
     return f"{n/1e6:.2f}M" if n >= 1e6 else f"{n/1e3:.0f}k" if n >= 1e3 else str(int(n))
+
+
+def use_color() -> bool:
+    """Colour only on a terminal; NO_COLOR turns it off, FORCE_COLOR on (https://no-color.org)."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return sys.stdout.isatty() and os.environ.get("TERM") != "dumb"
+
+
+class Style:
+    """ANSI codes, or empty strings when colour is off."""
+
+    def __init__(self, on: bool):
+        self.on = on
+        code = (lambda c: f"\x1b[{c}m") if on else (lambda c: "")
+        self.b, self.dim, self.cyan, self.yellow, self.reset = code("1"), code("2"), code("36"), code("33"), code("0")
 
 
 def pct(p):
@@ -219,9 +237,18 @@ def main(argv=None):
             wanted = per.covering(dt.date.today() - dt.timedelta(days=35))
         else:
             wanted = per.back(args.periods or 4)
-        bucket = by_period(per, wanted)
+        # also load the window before the first one asked for, so it can be compared; it isn't shown
+        lookback = [] if args.save or args.status or args.status_json else [per.previous(min(wanted))]
+        bucket = by_period(per, list(wanted) + lookback)
         label = per.label
-    weekly, sessions = aggregate(collect(args.tool, roots, since(wanted)), policy, bucket)
+    if adhoc:
+        lookback = []
+    weekly, sessions = aggregate(collect(args.tool, roots, since(list(wanted) + lookback)), policy, bucket)
+    prev_fresh = defaultdict(int)          # window -> fresh tokens, for "vs previous" lines
+    for r in weekly:
+        prev_fresh[r["period"]] += r["fresh"]
+    weekly = [r for r in weekly if r["period"] in wanted]
+    sessions = [s for s in sessions if s["period"] in wanted]
 
     if args.status or args.status_json:
         rows = sorted((r for r in weekly if r["period"] == this_p), key=lambda r: -r["fresh"])
@@ -262,29 +289,37 @@ def main(argv=None):
         sess_by[(s["period"], s["tool"], s["model"])].append(s)
 
     routing = bool(cfg.get("routing"))
+    st = Style(use_color())
     keys = sorted(by_week)
     for i, wk in enumerate(keys):
         rows = sorted(by_week[wk], key=lambda r: -r["fresh"])
         fresh = sum(r["fresh"] for r in rows)
-        print(f"\n=== {label(wk)} ===")
+        print(f"\n{st.b}{st.cyan}{label(wk)}{st.reset}" if st.on else f"\n=== {label(wk)} ===")
         n = len({(x["tool"], x["session"]) for x in sessions if x["period"] == wk and not x["auto"]})
-        line = f"{fmt(fresh)} tokens · {n} session{'s' * (n != 1)}"
-        if not adhoc and i > 0 and keys[i - 1] == per.previous(wk):
-            prev = sum(r["fresh"] for r in by_week[keys[i - 1]])
-            line += f" · previous {per.name} {fmt(prev)} ({100 * (fresh - prev) / prev:+.0f}%)" if prev else ""
+        line = f"{st.b}{fmt(fresh)} tokens{st.reset} · {n} session{'s' * (n != 1)}"
+        if not adhoc:
+            prev = prev_fresh.get(per.previous(wk), 0)
+            if prev:
+                line += f" · {st.yellow}{change_label(fresh, prev)}{st.reset} vs previous {per.name} ({fmt(prev)})"
         print(line)
-        tier = f"{'tier':<9}" if routing else ""
-        print(f"{'tool':<12}{'model':<22}{tier}{'tokens':>8}{'in':>8}{'cache_w':>8}{'out':>8}{'cache_r':>9}{'turns':>6}")
+        width = max([len(r["model"][:26]) for r in rows] + [5])
+        tier = f"{'tier':<10}" if routing else ""
+        print(f"{st.dim}  {'model':<{width}}  {tier}{'tool':<12}{'tokens':>8}  {'share':<16}{'sessions':>9}{st.reset}")
         for r in rows:
-            t = f"{r['tier']:<9}" if routing else ""
-            print(f"{r['tool']:<12}{r['model'][:21]:<22}{t}{fmt(r['fresh']):>8}{fmt(r['input']):>8}{fmt(r['cache_write']):>8}{fmt(r['output']):>8}{fmt(r['cache_read']):>9}{r['turns']:>6}")
+            share = r["fresh"] / fresh if fresh else 0
+            bar = "█" * round(share * 12) + "░" * (12 - round(share * 12))
+            t = f"{r['tier']:<10}" if routing else ""
+            print(f"  {r['model'][:26]:<{width}}  {t}{r['tool']:<12}{st.b}{fmt(r['fresh']):>8}{st.reset}  "
+                  f"{st.cyan}{bar}{st.reset} {100 * share:>3.0f}%{r['sessions']:>9}")
         auto = sum(r["auto_tokens"] for r in rows)
-        extra = [f"{fmt(sum(r['total'] for r in rows))} including cache reads"]
+        parts = [f"{fmt(sum(r['total'] for r in rows))} including cache reads",
+                 f"in {fmt(sum(r['input'] for r in rows))}", f"cache writes {fmt(sum(r['cache_write'] for r in rows))}",
+                 f"out {fmt(sum(r['output'] for r in rows))}"]
         if auto:
-            extra.append(f"subagents {fmt(auto)}" + (" (not judged)" if routing else ""))
+            parts.append(f"subagents {fmt(auto)}" + (" (not judged)" if routing else ""))
         if routing:
-            extra.insert(0, f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
-        print(" · ".join(extra))
+            parts.insert(0, f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
+        print(f"{st.dim}  " + " · ".join(parts) + st.reset)
         if routing:
             note = unmapped_note(rows)
             if note:
@@ -301,10 +336,10 @@ def main(argv=None):
                         print(f"      [{s['category']}] {s['project']}: {s['prompt'][:90]} ({fmt(s['tokens'])})")
                 ss = [s for s in ss if s["on_policy"] != "no"]
             else:
-                print(f"\n  {r['model']}: {r['sessions']} session{'s' * (r['sessions'] != 1)}")
+                print(f"\n  {st.b}{r['model']}{st.reset}: {r['sessions']} session{'s' * (r['sessions'] != 1)}")
             for s in sorted(ss, key=lambda s: -s["fresh"])[:args.prompts]:
                 tag = f"[{s['category']}] " if routing else ""
-                print(f"    • {tag}{s['project']}: {s['prompt'][:90]} ({fmt(s['fresh'])})")
+                print(f"    • {tag}{st.dim}{s['project']}:{st.reset} {s['prompt'][:90]} {st.dim}({fmt(s['fresh'])}){st.reset}")
 
 if __name__ == "__main__":
     try:

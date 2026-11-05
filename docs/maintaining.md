@@ -2,12 +2,19 @@
 
 ## Screenshots
 
-`docs/images/menubar.png` and `docs/images/menu.png` use demo data, never real usage. To retake them:
+The README images in `docs/images/` use demo data, never real usage, and made-up projects and prompts.
 
-1. Write demo sessions in the generic format (see [adapters](adapters.md#your-own-tool)) and a config pointing at them: `{"tools": ["generic"], "roots": {"generic": "<dir>"}}`.
+- `hero.png`: the menu bar item drawn in HTML (same font and sizes as the app) with the real menu window composited under it, on a gradient.
+- `terminal.png`: the real CLI output (`FORCE_COLOR=1 agentmeter --period this --prompts 1`) converted from ANSI to HTML in a window frame.
+- `report.png`: a real saved report rendered from its Markdown in a window frame.
+
+To retake them:
+
+1. Write demo sessions in the generic format (see [adapters](adapters.md#your-own-tool)) covering at least three weeks, and a config pointing at them: `{"tools": ["generic"], "roots": {"generic": "<dir>"}, "period": {"start": "<a Friday three weeks back>", "length": "1w"}}`. Save demo reports with `AGENTMETER_CONFIG=<demo config> agentmeter --save <demo reports dir>`.
 2. Build the app in screenshot mode, which opens its own menu once data has loaded: `swiftc -O -swift-version 5 -D SCREENSHOT macos/AgentmeterBar.swift -o /tmp/bar-shot`.
-3. Stop the real app (`launchctl bootout gui/$(id -u)/io.github.agentmeter.bar`), run `AGENTMETER_CONFIG=<demo config> /tmp/bar-shot`, then capture the menu window with `screencapture -o -l <window id>` and the bar with `screencapture -R`.
+3. Stop the real app (`launchctl bootout gui/$(id -u)/io.github.agentmeter.bar`), run `AGENTMETER_CONFIG=<demo config> AGENTMETER_REPORTS=<demo reports dir> /tmp/bar-shot`, and capture the menu window alone with `screencapture -o -l <window id>` (find the id with `CGWindowListCopyWindowInfo`, owner `bar-shot`).
 4. Restart the real app: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.agentmeter.bar.plist`.
+5. Render the HTML pages with headless Chrome at 2x: `--headless=new --force-device-scale-factor=2 --default-background-color=00000000 --screenshot`.
 
 The terminal needs Screen Recording permission, and the screen must be unlocked.
 
