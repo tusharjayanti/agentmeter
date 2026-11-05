@@ -78,11 +78,14 @@ def change_label(cur, prev):
     if not prev:
         return "new" if cur else "–"
     p = round(100 * (cur - prev) / prev)
-    return "no change" if p == 0 else f"{'▲' if p > 0 else '▼'} {abs(p)}%"
+    if p == 0:
+        return "no change"
+    # Pango markup: green up, red down
+    return f"<span foreground='{'#2ea44f' if p > 0 else '#d73a49'}'>{'↑' if p > 0 else '↓'}{abs(p)}%</span>"
 
 
 change = f"   this {name} so far {change_label(fresh, prev)}" if prev else ""
-print(f"Last {name}: {fmt(prev)}{change} | {GRAY} size=11")
+print(f"Last {name}: {fmt(prev)}{change} | {GRAY} size=11 useMarkup=true")
 print("---")
 reports = sorted(REPORTS.glob("????-??-??.md"))
 if reports:

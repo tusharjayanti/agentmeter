@@ -46,6 +46,7 @@ class Style:
         self.on = on
         code = (lambda c: f"\x1b[{c}m") if on else (lambda c: "")
         self.b, self.dim, self.cyan, self.yellow, self.reset = code("1"), code("2"), code("36"), code("33"), code("0")
+        self.green, self.red = code("32"), code("31")
 
 
 def pct(p):
@@ -300,7 +301,8 @@ def main(argv=None):
         if not adhoc:
             prev = prev_fresh.get(per.previous(wk), 0)
             if prev:
-                line += f" · {st.yellow}{change_label(fresh, prev)}{st.reset} vs previous {per.name} ({fmt(prev)})"
+                hue = st.green if fresh > prev else st.red if fresh < prev else ""
+                line += f" · {hue}{change_label(fresh, prev)}{st.reset} vs previous {per.name} ({fmt(prev)})"
         print(line)
         width = max([len(r["model"][:26]) for r in rows] + [5])
         tier = f"{'tier':<10}" if routing else ""

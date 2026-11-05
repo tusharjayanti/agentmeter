@@ -317,11 +317,11 @@ class Periods:
 
 
 def change_label(cur: float, prev: float) -> str:
-    """'▲ 25%', '▼ 19%', 'no change', or 'new' when there was nothing before."""
+    """'↑25%', '↓19%', 'no change', or 'new' when there was nothing before."""
     if not prev:
         return "new" if cur else "–"
     p = round(100 * (cur - prev) / prev)
-    return "no change" if p == 0 else f"{'▲' if p > 0 else '▼'} {abs(p)}%"
+    return "no change" if p == 0 else f"{'↑' if p > 0 else '↓'}{abs(p)}%"
 
 
 def span_label(a: dt.date, b: dt.date) -> str:

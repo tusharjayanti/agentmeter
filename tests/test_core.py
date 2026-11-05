@@ -136,7 +136,7 @@ def test_parse_window_arguments():
 
 def test_change_label():
     from agentmeter.core import change_label
-    assert change_label(125, 100) == "▲ 25%" and change_label(81, 100) == "▼ 19%"
+    assert change_label(125, 100) == "↑25%" and change_label(81, 100) == "↓19%"
     assert change_label(100, 100) == "no change" and change_label(5, 0) == "new" and change_label(0, 0) == "–"
 
 
