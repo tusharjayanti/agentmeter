@@ -96,11 +96,14 @@ func stackedLabel(caption: String, value: String) -> NSImage {
 /// Bar colours by rank, most-used model first.
 let palette: [NSColor] = [.systemBlue, .systemTeal, .systemPurple, .systemOrange, .systemPink, .systemGreen]
 
-/// "▲ 25%", "▼ 19%", "no change", or "new" when there was nothing before.
-func changeLabel(_ cur: Double, _ prev: Double) -> String {
-    guard prev > 0 else { return cur > 0 ? "new" : "–" }
+/// "↑25%" in green, "↓19%" in red, "no change", or "new" when there was nothing before.
+func changeLabel(_ cur: Double, _ prev: Double, font: NSFont) -> NSAttributedString {
+    let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+    guard prev > 0 else { return NSAttributedString(string: cur > 0 ? "new" : "–", attributes: plain) }
     let p = Int((100 * (cur - prev) / prev).rounded())
-    return p == 0 ? "no change" : "\(p > 0 ? "▲" : "▼") \(abs(p))%"
+    if p == 0 { return NSAttributedString(string: "no change", attributes: plain) }
+    return NSAttributedString(string: "\(p > 0 ? "↑" : "↓")\(abs(p))%",
+                              attributes: [.font: font, .foregroundColor: p > 0 ? NSColor.systemGreen : NSColor.systemRed])
 }
 
 /// A rounded bar: a faint track with the share filled in the model's colour (at least a sliver when used).
@@ -367,9 +370,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(.separator())
             // last week: total and change here, its models in a submenu
             let last = NSMenuItem(title: "Last \(s.name)", action: nil, keyEquivalent: "")
-            let change = prev > 0 ? "   this \(s.name) so far \(changeLabel(cur, prev))" : ""
-            last.attributedTitle = NSAttributedString(string: "Last \(s.name): \(fmt(prev))\(change)",
-                                                      attributes: [.font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.labelColor])
+            let lineFont = NSFont.menuFont(ofSize: 12)
+            let line = NSMutableAttributedString(string: "Last \(s.name): \(fmt(prev))",
+                                                 attributes: [.font: lineFont, .foregroundColor: NSColor.labelColor])
+            if prev > 0 {
+                line.append(NSAttributedString(string: "   this \(s.name) so far ", attributes: [.font: lineFont, .foregroundColor: NSColor.labelColor]))
+                line.append(changeLabel(cur, prev, font: lineFont))
+            }
+            last.attributedTitle = line
             let sub = NSMenu()
             sub.autoenablesItems = false
             if let label = s.labels[s.lastPeriod] { sub.addItem(text(label, size: 11, color: .secondaryLabelColor)) }

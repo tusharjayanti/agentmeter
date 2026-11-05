@@ -99,7 +99,7 @@ def _two_weeks(tmp_path):
 def test_single_week_is_compared_with_the_one_before(tmp_path):
     cfg = _two_weeks(tmp_path)
     r = run(tmp_path, "--period", "2026-11-04", cfg=cfg)
-    assert "150 tokens · 1 session · ▲ 50% vs previous week (100)" in r.stdout and "Oct" not in r.stdout.split("\n")[1]
+    assert "150 tokens · 1 session · ↑50% vs previous week (100)" in r.stdout and "Oct" not in r.stdout.split("\n")[1]
     d = json.loads(run(tmp_path, "--period", "2026-11-04", "--json", cfg=cfg).stdout)
     assert {w["period"] for w in d["periods"]} == {"2026-11-02"}          # the earlier week is only used for the comparison
 
@@ -110,5 +110,6 @@ def test_colour_only_when_asked(tmp_path):
     env_run = lambda **e: subprocess.run([sys.executable, "-m", "agentmeter", "--period", "2026-11-04"], cwd=REPO, text=True,
                                          capture_output=True, env={**os.environ, "HOME": str(tmp_path), "AGENTMETER_NO_WIZARD": "1",
                                                                    "AGENTMETER_CONFIG": str(tmp_path / "cfg.json"), **e}).stdout
-    assert "\x1b[1m" in env_run(FORCE_COLOR="1")
+    coloured = env_run(FORCE_COLOR="1")
+    assert "\x1b[1m" in coloured and "\x1b[32m↑50%" in coloured          # increase in green
     assert "\x1b[" not in env_run(FORCE_COLOR="1", NO_COLOR="1")
