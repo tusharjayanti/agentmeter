@@ -70,7 +70,9 @@ agentmeter init                   # setup questions
 agentmeter check                  # validate the config; show windows, next report date, models seen
 ```
 
-`--weeks` / `--week` are aliases of `--periods` / `--period`. `AGENTMETER_NO_WIZARD=1` stops setup from starting on a first run.
+`--weeks` / `--week` are aliases of `--periods` / `--period`. Each window is compared with the one before it, which is loaded for that purpose even when it isn't shown.
+
+Environment: `AGENTMETER_CONFIG` (config path), `AGENTMETER_NO_WIZARD=1` (never start setup on a first run), `NO_COLOR` / `FORCE_COLOR` (colours are on only in a terminal by default), `AGENTMETER_REPORTS` (the menu bar app reads reports from this folder instead).
 
 ## Reports
 
