@@ -21,6 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import adapters, report
+from .limits import all_limits
 from .prices import Prices, money
 from .core import (Periods, Policy, aggregate, by_period, by_range, change_label, config_path, load_config, on_policy_pct,
                    parse_since, since, span_label, validate)
@@ -206,8 +207,25 @@ def table(st, headers, rows, align):
     return "\n".join(out)
 
 
-def show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows=()):
-    from .prices import AS_OF, money
+def limit_lines(st, limits) -> list[str]:
+    """'Claude limits: 5-hour 4% resets 20:29 · week 1% resets Tue 17 Nov · as of 16:00', one line per tool."""
+    from .limits import age, short
+    out = []
+    for tool in dict.fromkeys(x["tool"] for x in limits):
+        mine = [x for x in limits if x["tool"] == tool and (x["percent"] or "(" not in x["name"])]
+        if not mine:
+            continue
+        parts = []
+        for x in mine:
+            hue = st.red if x["percent"] >= 90 else st.yellow if x["percent"] >= 70 else ""
+            pct = f"{hue}{x['percent']}%{st.reset}" if hue else f"{x['percent']}%"
+            parts.append(f"{x['name']} {st.dim if x['stale'] else ''}{pct}{st.reset if x['stale'] else ''} {short(x)}".rstrip())
+        out.append(f"{tool} limits: " + " · ".join(parts) + f" {st.dim}· {age(mine[0])}{st.reset}")
+    return out
+
+
+def show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows=(), limits=()):
+    from .prices import AS_OF, money, split
     st = Style(use_color())
     routing = bool(cfg.get("routing"))
     by_week = defaultdict(list)
@@ -269,6 +287,12 @@ def show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows=
         if routing:
             parts.insert(0, f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
         print(f"{st.dim}" + " · ".join(parts) + st.reset)
+        parts = defaultdict(float)
+        for r in rows:
+            for k, v in (r.get("cost_parts") or {}).items():
+                parts[k] += v
+        if split(parts):
+            print(f"{st.dim}cost: {split(parts)}{st.reset}")
         notes = [f"API prices of {AS_OF}, not a subscription bill"]
         if t["unpriced"]:
             um = sorted({r["model"] for r in rows if r.get("unpriced")})
@@ -276,6 +300,9 @@ def show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows=
         if not args.sessions:
             notes.append("--sessions for details")
         print(f"{st.dim}" + " · ".join(notes) + st.reset)
+        if adhoc or wk == per.current():
+            for line in limit_lines(st, limits):
+                print(line)
         if routing:
             note = unmapped_note(rows)
             if note:
@@ -423,6 +450,7 @@ def main(argv=None):
                f"{fmt(sum(r['total'] for r in rows))} including cache reads"]
         tip += [f"  {r['model'][:24]:<24} {fmt(r['fresh']):>7}" for r in rows]
         tip.append(f"Last {per.name}: {fmt(prev)}")
+        tip += [x for x in limit_lines(Style(False), all_limits())]
         # Pango markup: a small caption before the number, the one-line form of the macOS menu bar look
         text = f"<span size='x-small' weight='medium'>TOKENS</span> {fmt(fresh)}"
         print(json.dumps({"text": text, "tooltip": "\n".join(tip), "class": "agentmeter"}))
@@ -439,11 +467,23 @@ def main(argv=None):
         print(f"wrote {', '.join(done)} to {d}" if done else f"no new finished {per.name}s to write in {d}")
         return
     if args.json:
-        json.dump({"periods": weekly, "sessions": sessions, "config": meta}, sys.stdout, indent=1)
+        from .prices import split
+        limits = all_limits()
+        parts = defaultdict(lambda: defaultdict(float))
+        for r in weekly:
+            for k, v in (r.get("cost_parts") or {}).items():
+                parts[r["period"]][k] += v
+        meta["cost_split"] = {k: split(v) for k, v in parts.items()}      # ready-made text for the menu bar app
+        meta["limit_lines"] = limit_lines(Style(False), limits)
+        json.dump({"periods": weekly, "sessions": sessions, "config": meta, "limits": limits}, sys.stdout, indent=1)
         return
     if not weekly:
-        print(f"no sessions in {label(wanted[0]) if adhoc else 'the selected ' + per.name + 's'}"); return
-    show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows)
+        print(f"no sessions in {label(wanted[0]) if adhoc else 'the selected ' + per.name + 's'}")
+        if adhoc or per.current() in wanted:
+            for line in limit_lines(Style(use_color()), all_limits()):
+                print(line)
+        return
+    show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows, all_limits())
 
 
 if __name__ == "__main__":

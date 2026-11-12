@@ -158,6 +158,8 @@ struct Snapshot {
     var rows: [Row] = []
     var thisPeriod = "", lastPeriod = "", name = "week"
     var labels: [String: String] = [:]
+    var costSplit: [String: String] = [:]     // period -> "cache reads $5.40 · cache writes $2.68 · output $2.37"
+    var limitLines: [String] = []             // "Claude limits: 5-hour 4% resets 20:29 · week 1% … · as of 16:00"
     var sessionKeys: [String: Set<String>] = [:]   // period -> distinct "tool/session" (a session using two models counts once)
     var error: String?
 
@@ -196,6 +198,8 @@ func loadSnapshot() -> Snapshot {
     s.lastPeriod = cfg["last_period"] as? String ?? ""
     s.name = (cfg["period"] as? [String: Any])?["name"] as? String ?? "week"
     s.labels = cfg["labels"] as? [String: String] ?? [:]
+    s.costSplit = cfg["cost_split"] as? [String: String] ?? [:]
+    s.limitLines = cfg["limit_lines"] as? [String] ?? []
     for r in obj["periods"] as? [[String: Any]] ?? [] {
         s.rows.append(Row(period: r["period"] as? String ?? "", tool: r["tool"] as? String ?? "",
                           model: r["model"] as? String ?? "?",
@@ -371,6 +375,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(text("This \(s.name) (since \(since(s.thisPeriod)))", size: 12, color: .secondaryLabelColor, action: show))
             menu.addItem(text("\(fmt(cur)) tokens · \(money(s.cost(s.thisPeriod))) · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15, action: show))
             menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads · cost at API prices", size: 11, color: .secondaryLabelColor, action: show))
+            if let split = s.costSplit[s.thisPeriod], !split.isEmpty {
+                menu.addItem(text("cost: \(split)", size: 11, color: .secondaryLabelColor, action: show))
+            }
+            for line in s.limitLines {
+                menu.addItem(text(line, size: 11, color: .secondaryLabelColor))
+            }
             menu.addItem(.separator())
             // one colour per model, the same in this week's rows and last week's submenu
             let rows = s.rows(s.thisPeriod), lastRows = s.rows(s.lastPeriod)

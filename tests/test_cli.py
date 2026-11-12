@@ -144,6 +144,9 @@ def test_tui_frame_draws_every_view(tmp_path):
     cfg = _two_weeks(tmp_path)
     (tmp_path / "cfg.json").write_text(json.dumps(cfg))
     os.environ["AGENTMETER_CONFIG"] = str(tmp_path / "cfg.json")
+    os.environ["CLAUDE_CONFIG_DIR"] = str(tmp_path)          # a known limits reading, not this machine's
+    (tmp_path / ".claude.json").write_text(json.dumps({"cachedUsageUtilization": {"fetchedAtMs": 1794479411771, "utilization": {
+        "limits": [{"kind": "session", "percent": 4, "resets_at": "2099-01-01T00:00:00+00:00"}]}}}))
     try:
         from agentmeter.core import load_config
         d = tui.Data(load_config()); d.load()
@@ -158,5 +161,23 @@ def test_tui_frame_draws_every_view(tmp_path):
         screen = tui.text(tui.frame(st, 80, 24))
         assert "◀ Mon 2 Nov – Sun 8 Nov 2026 ▶" in screen and "gpt-5" in screen and "↑50%" in screen
         assert "build it" in screen                      # the selected model's sessions
+        assert "LIMITS" not in screen                    # limits are about now, not a past week
+        st.key = d.per.current()
+        assert "LIMITS  Claude" in tui.text(tui.frame(st, 80, 24))
     finally:
-        os.environ.pop("AGENTMETER_CONFIG")
+        os.environ.pop("AGENTMETER_CONFIG"); os.environ.pop("CLAUDE_CONFIG_DIR")
+
+
+def test_limits_and_cost_split_in_output(tmp_path):
+    cfg = _two_weeks(tmp_path)
+    (tmp_path / ".claude.json").write_text(json.dumps({"cachedUsageUtilization": {"fetchedAtMs": 1794479411771, "utilization": {
+        "limits": [{"kind": "session", "percent": 4, "resets_at": "2099-01-01T00:00:00+00:00"}]}}}))
+    today = run(tmp_path, "--today", cfg=cfg).stdout                       # no sessions today, limits still shown
+    assert "no sessions" in today and "Claude limits: 5-hour 4% resets Thu 1 Jan" in today
+    past = run(tmp_path, "--period", "2026-11-04", cfg=cfg).stdout
+    assert "Claude limits" not in past                                     # limits are about now
+    assert "cost: \n" not in past and "cost:" not in past                   # $0.0002 rounds away: no empty split line
+    priced = run(tmp_path, "--period", "2026-11-04", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
+    assert "cost: input $0.15" in priced
+    d = json.loads(run(tmp_path, "--json", cfg=cfg).stdout)
+    assert d["limits"][0]["name"] == "5-hour" and d["config"]["limit_lines"][0].startswith("Claude limits: 5-hour 4%")

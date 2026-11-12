@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="The agentmeter menu bar item showing TOKENS 2.18M, with its menu open: this week's tokens and sessions, tokens per model, and last week's total">
+  <img src="docs/images/hero.png" alt="The agentmeter menu bar item showing TOKENS 2.18M, with its menu open: this week's tokens, cost and sessions, the cost split, Claude's 5-hour and weekly limits, tokens per model, and last week's total">
 </p>
 
 <p align="center"><sub>Screenshots use demo data.</sub></p>
@@ -44,7 +44,7 @@ It needs Python 3.9 or newer and nothing else. On a Mac without developer tools,
 
 ## Always in view
 
-The menu bar shows the week's tokens so far. Click it for the cost, the breakdown by model, last week's total, and the latest report.
+The menu bar shows the week's tokens so far. Click it for the cost, your plan's 5-hour and weekly limits, the breakdown by model, last week's total, and the latest report.
 
 On Linux, the same number goes in your top bar: a GNOME extension through [Argos](https://github.com/p-e-w/argos), or one line for Waybar, Polybar or tmux ([snippets](docs/configuration.md#linux-status-bars)).
 
@@ -67,6 +67,8 @@ agentmeter --json              # everything, for your own scripts
 </p>
 
 Cost is what the tokens would cost at each vendor's API list prices, bundled and dated in the code. On a subscription it isn't your bill, but it's a fair way to compare weeks and models. [How it's worked out](docs/configuration.md#cost-prices).
+
+Plan limits (Claude's and Codex's 5-hour and weekly) come from the copy each tool already keeps on disk, so agentmeter still never goes online. [Details](docs/configuration.md#plan-limits).
 
 ## A report every week
 

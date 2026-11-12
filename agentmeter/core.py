@@ -417,11 +417,13 @@ def aggregate(sessions: Iterable[Session], policy: Policy, bucket, prices=None):
             b = by[(wk, t.model, t.auto)]
             b["input"] += t.input; b["cache_write"] += t.cache_write
             b["cache_read"] += t.cache_read; b["output"] += t.output; b["turns"] += 1
-            c = prices.cost(t)
+            c = prices.parts(t)
             if c is None:
                 b["unpriced"] += t.input + t.cache_write + t.output
             else:
-                b["cost"] += c; b["priced"] += 1
+                b["cost"] += sum(c.values()); b["priced"] += 1
+                for k, v in c.items():
+                    b["cost_" + k] += v
         for (wk, model, auto), b in by.items():
             agg = tok[(wk, s.tool, model)]
             for k, v in b.items():
@@ -455,6 +457,7 @@ def aggregate(sessions: Iterable[Session], policy: Policy, bucket, prices=None):
             "input": t["input"], "cache_write": t["cache_write"], "cache_read": t["cache_read"],
             "output": t["output"], "total": inp + t["output"], "fresh": t["input"] + t["cache_write"] + t["output"],
             "cost": round(t["cost"], 6) if t["priced"] else None, "unpriced": t["unpriced"],
+            "cost_parts": {k[5:]: round(v, 6) for k, v in t.items() if k.startswith("cost_") and v},
             "cache_pct": round(100 * t["cache_read"] / inp, 1) if inp else 0.0,
             "off_policy_sessions": len(off), "off_policy_tokens": sum(r["tokens"] for r in off),
             "on_policy_tokens": sum(r["tokens"] for r in rows if r["on_policy"] == "yes"),

@@ -117,10 +117,11 @@ class Prices:
             return {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "cache_write_1h": 0}
         return self.table.get(normalise(model))
 
-    def cost(self, turn) -> float | None:
-        """Dollars for one turn, or None when the model has no price. A cost the tool logged itself wins."""
+    def parts(self, turn) -> dict | None:
+        """Dollars for one turn by kind of token: {input, cache_write, cache_read, output}, or {logged} when
+        the tool logged its own cost (which wins), or None when the model has no price."""
         if turn.cost is not None:
-            return turn.cost
+            return {"logged": turn.cost}
         r = self.rates(turn.model)
         if r is None:
             return None
@@ -128,8 +129,26 @@ class Prices:
         if "long" in r and prompt > r["long"][0]:
             r = r["long"][1]
         w1h = min(turn.cache_write_1h, turn.cache_write)
-        return (turn.input * r["input"] + (turn.cache_write - w1h) * r["cache_write"] + w1h * r["cache_write_1h"]
-                + turn.cache_read * r["cache_read"] + turn.output * r["output"]) / 1e6
+        return {"input": turn.input * r["input"] / 1e6,
+                "cache_write": ((turn.cache_write - w1h) * r["cache_write"] + w1h * r["cache_write_1h"]) / 1e6,
+                "cache_read": turn.cache_read * r["cache_read"] / 1e6, "output": turn.output * r["output"] / 1e6}
+
+    def cost(self, turn) -> float | None:
+        """Dollars for one turn, or None when the model has no price."""
+        p = self.parts(turn)
+        return None if p is None else sum(p.values())
+
+
+PARTS = [("cache_write", "cache writes"), ("cache_read", "cache reads"), ("output", "output"), ("input", "input"),
+         ("logged", "logged by the tool")]
+
+
+def split(parts: dict, money_fn=None) -> str:
+    """'cache writes $65 · cache reads $56 · output $29', largest first, parts under half a cent left out."""
+    money_fn = money_fn or money
+    items = sorted(((k, v) for k, v in parts.items() if v >= 0.005), key=lambda kv: -kv[1])
+    names = dict(PARTS)
+    return " · ".join(f"{names.get(k, k)} {money_fn(v)}" for k, v in items)
 
 
 def money(x) -> str:

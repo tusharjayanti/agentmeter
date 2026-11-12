@@ -8,7 +8,7 @@
 in macos/ is the default; this is for Linux. Runs `agentmeter --periods 2 --json` hourly.
 
 Bar: a small TOKENS caption and the number (Pango markup), the one-line form of the macOS look.
-Menu: tokens this window, per model, last window, latest report."""
+Menu: tokens and cost this window, plan limits, per model, last window, latest report."""
 import datetime as dt
 import json
 import os
@@ -79,6 +79,10 @@ print("---")
 print(f"This {name} (since {day(this_p)}) | {GRAY} size=10")
 print(f"{fmt(fresh)} tokens · {money(cost(rows))} · {sum(r['sessions'] for r in rows)} session{'s' * (sum(r['sessions'] for r in rows) != 1)} | size=13")
 print(f"{fmt(sum(r['total'] for r in rows))} including cache reads · cost at API prices | {GRAY} size=10")
+if meta.get("cost_split", {}).get(this_p):
+    print(f"cost: {meta['cost_split'][this_p]} | {GRAY} size=10")
+for line in meta.get("limit_lines") or []:
+    print(f"{line} | {GRAY} size=10")
 print("---")
 if not rows:
     print(f"No sessions yet this {name} | {GRAY}")

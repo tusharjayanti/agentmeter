@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from .core import Periods, change_label
-from .prices import AS_OF, money
+from .prices import AS_OF, money, split
 
 DEFAULT_DIR = "~/.local/share/agentmeter/reports"
 FOOTNOTE = ("Tokens are fresh tokens: input + cache writes + output. Cache reads (the model re-reading the "
@@ -65,6 +65,12 @@ def render_md(wk: str, rows: list[dict], sessions: list[dict], periods: Periods,
     out = [f"# agentmeter: {periods.label(wk)}", "",
            f"**{_fmt(s['fresh'])} tokens** this {name} · {money(s['cost'])} at API prices · "
            f"{n_sessions(sessions)} session{'s' * (n_sessions(sessions) != 1)}", ""]
+    parts = {}
+    for r in rows:
+        for k, v in (r.get("cost_parts") or {}).items():
+            parts[k] = parts.get(k, 0) + v
+    if split(parts):
+        out += [f"Cost: {split(parts)}", ""]
     if prev_rows:
         cost = f" · {money(p['cost'])}" if p["cost"] is not None else ""
         out += [f"Previous {name} ({periods.label(pk)}): {_fmt(p['fresh'])}{cost} · **{_change(s['fresh'], p['fresh'])}**", ""]

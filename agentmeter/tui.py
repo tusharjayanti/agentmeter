@@ -22,7 +22,8 @@ from pathlib import Path
 from . import report
 from .cli import collect, fmt, load_policy
 from .core import Periods, aggregate, by_period, by_range, change_label, load_config, since, span_label
-from .prices import AS_OF, Prices, money
+from .limits import age, all_limits, short
+from .prices import AS_OF, Prices, money, split
 
 SPARK = "▁▂▃▄▅▆▇█"
 HUES = ["c1", "c2", "c3", "c4", "ok"]
@@ -40,12 +41,14 @@ class Data:
         self.tools = cfg.get("tools") or None
         self.roots = cfg.get("roots", {})
         self.sessions, self.loaded_from, self.loaded_at = [], None, 0.0
+        self.limits = []
 
     def load(self, frm: str | None = None):
         """(Re)read the logs, far enough back to cover the window starting on `frm` and the one before it."""
         frm = min(x for x in (frm, self.loaded_from, self.per.back(6)[0]) if x)
         frm = self.per.previous(frm)
         self.sessions = list(collect(self.tools, self.roots, since([frm]), quiet=True))
+        self.limits = all_limits()
         self.loaded_from, self.loaded_at = frm, time.time()
 
     def need(self, key: str):
@@ -219,6 +222,11 @@ def frame(st: State, W: int, H: int, now: dt.datetime | None = None):
             [(f"{fmt(fresh):<7}", "b"), (" ", None), _chg(fresh, pf) if prev else ("", None), (" " * (9 - len(_chg(fresh, pf)[0] if prev else "")), None),
              (f"{money(cost):<8}", "b"), (" ", None), _chg(cost or 0, sum(pc)) if pc and cost is not None else ("", None)],
             [(f"{n} session{'s' * (n != 1)} · {fmt(total)} incl. cache", "dim")]]
+    parts = defaultdict(float)
+    for r in rows:
+        for k, v in (r.get("cost_parts") or {}).items():
+            parts[k] += v
+    left.append([(_split_fit(parts, L - 2), "dim")] if parts else [])
     spark = _spark(chart, R - 2)
     busiest = ""
     if chart and max(chart):
@@ -226,11 +234,14 @@ def frame(st: State, W: int, H: int, now: dt.datetime | None = None):
         busiest = f"busiest: {chart_lab[i] if i < len(chart_lab) else '#' + str(i + 1)}, {fmt(chart[i])}"
     axis = st.tab == 0 and chart_lab and len(chart_lab) * 3 <= R - 2   # day letters under the bars
     right = [[(chart_name, "dim")], [(spark if not axis else "  ".join(spark), "c1")],
-             [(" ".join(x[:2] for x in chart_lab) if axis else "", "dim")]]
-    right[2] = right[2] + [("  " if right[2][0][0] else "", None), (busiest, "dim")]
+             [(" ".join(x[:2] for x in chart_lab) if axis else "", "dim")], [(busiest, "dim")]]
     for a, b in zip(left, right):
         lines.append(_row(W, (L, a), (R, b)))
     lines.append(_rule(W, "├", "┤", [L + 1], mid="┴"))
+    if st.data.limits and (st.tab in (1, 2) or st.key == st.data.per.current()):
+        for ln in _limits(st, W):
+            lines.append(ln)
+        lines.append(_rule(W, "├", "┤"))
 
     # model table
     mw = min(24, max([5] + [len(r["model"]) for r in rows]))
@@ -283,6 +294,46 @@ def frame(st: State, W: int, H: int, now: dt.datetime | None = None):
     lines.append(_rule(W, "└", "┘"))
     lines.append(_fit(_keys(st, f"API prices of {AS_OF}"), W))
     return lines
+
+
+def _split_fit(parts, width) -> str:
+    """The cost split in short words, dropping the smallest parts until it fits."""
+    names = lambda x: x.replace("cache writes", "writes").replace("cache reads", "reads").replace("logged by the tool", "logged")
+    keep = dict(parts)
+    while keep:
+        text = names(split(keep))
+        if len(text) <= width:
+            return text
+        keep.pop(min(keep, key=keep.get))
+    return ""
+
+
+def _limits(st, W):
+    """One line per tool: LIMITS  Claude  5-hour ███░░░░░ 4% resets 20:29  week █░░░░░░░ 1% resets Tue 17 Nov  as of 16:00.
+    Bars shrink, then go, when the terminal is narrow."""
+    out = []
+    by_tool = {}
+    for x in st.data.limits:
+        if x["percent"] or "(" not in x["name"]:
+            by_tool.setdefault(x["tool"], []).append(x)
+    for i, (tool, xs) in enumerate(by_tool.items()):
+        for bw, brief in ((8, False), (4, False), (0, False), (0, True)):
+            segs = [("LIMITS  " if i == 0 else "        ", "dim"), (f"{tool:<7}", "b")]
+            for x in xs:
+                k = 0 if not x["percent"] else max(1, min(bw, round(x["percent"] * bw / 100)))
+                hue = "dim" if x["stale"] else "bad" if x["percent"] >= 90 else "c3" if x["percent"] >= 70 else "c1"
+                segs += [(f"  {x['name']} ", None)]
+                if bw:
+                    segs += [("█" * k, hue), ("░" * (bw - k), "dim"), (" ", None)]
+                when = short(x)
+                if brief and when.startswith("resets ") and ":" not in when:
+                    when = when[:10]            # 'resets Tue 17 Nov' -> 'resets Tue'
+                segs += [(f"{x['percent']}% ", "dim" if x["stale"] else "b"), (when, "dim")]
+            segs.append((f"  {age(xs[0])}", "dim"))
+            if _len(segs) <= W - 4:
+                break
+        out.append(_row(W, (W - 2, segs)))
+    return out
 
 
 def _keys(st: State, note=""):

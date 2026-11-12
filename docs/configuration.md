@@ -36,6 +36,21 @@ A model with no listed price shows `–`, and the CLI says how many tokens that 
 
 Fields are `input`, `output`, `cache_read`, `cache_write` and `cache_write_1h`; a missing cache field defaults to the input price. Model ids are matched exactly, ignoring date suffixes (`-20260401`) and platform prefixes (`us.anthropic.`, `models/`).
 
+Every view also shows the cost split by kind of token, e.g. `cost: cache writes $65 · cache reads $56 · output $29`, so the total can be checked against the price list. On Claude Code, cache reads and 1-hour cache writes are usually most of it.
+
+### Checking against Claude Code
+
+Claude Code's `/usage` (Usage tab) counts each API call once and agrees with agentmeter within a few percent; the difference is Claude Code's background calls that never reach the session log (title and summary calls). Its Stats tab (`/stats`, from `~/.claude/stats-cache.json`) adds up every line of the session logs, and Claude Code writes one line per part of a reply with the same usage repeated, so its token totals run about 2.5× higher. Compare with `/usage`, not Stats.
+
+## Plan limits
+
+On a subscription, agentmeter shows how much of your 5-hour and weekly limits you have used, in the CLI (current window and ad hoc ranges), `agentmeter tui`, the menu bar menu, the Linux widget and `--json` (`limits`). It reads the copy each tool keeps on disk; it never contacts Anthropic or OpenAI.
+
+- Claude Code: `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`), key `cachedUsageUtilization`, the reading `/usage` shows. Only that key is read; the rest of the file is account settings.
+- Codex CLI: the `rate_limits` on the last `token_count` event of the newest session log.
+
+A reading is as fresh as the tool's last check, so it is labelled `as of 16:00`. Once its reset time has passed it shows `reset since` instead of a stale percentage. Both formats are internal to the tools; if one changes, agentmeter shows no limits rather than wrong ones. API-key users have no plan limits, so nothing is shown.
+
 ## Menu bar: `widget`
 
 ```json
