@@ -22,7 +22,7 @@ macos/
 widget/
   agentmeter.1h.py           Linux top-bar plugin (GNOME Argos, xbar-compatible); runs `agentmeter --periods 2 --json`
 assets/          logo (TOKENS label) SVG + PNGs for README/social preview
-docs/            configuration.md, adapters.md, maintaining.md (screenshots, Homebrew); images/ holds README screenshots (demo data)
+docs/            configuration.md, adapters.md, menu.md (each part of the menu), maintaining.md (screenshots, Homebrew); images/ holds README screenshots (demo data)
 .github/         CI: pytest on Ubuntu (3.9, latest) + macOS, Linux install smoke test, swiftc build; CODEOWNERS
 install.sh       zipapp CLI → ~/.local/bin, setup questions, hourly report job (launchd / systemd user timer), menu bar app / widget
 Formula/         Homebrew formula (tap repo: homebrew-agentmeter); sha256 placeholder until a release is tagged

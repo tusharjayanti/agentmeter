@@ -44,7 +44,7 @@ It needs Python 3.9 or newer and nothing else. On a Mac without developer tools,
 
 ## Always in view
 
-The menu bar shows the week's tokens so far. Click it for the cost, your plan's 5-hour and weekly limits, the breakdown by model, last week's total, and the latest report.
+The menu bar shows the week's tokens so far. Click it for the cost, your plan's 5-hour and weekly limits, the breakdown by model, last week's total, and the latest report. [What each part of the menu means](docs/menu.md).
 
 On Linux, the same number goes in your top bar: a GNOME extension through [Argos](https://github.com/p-e-w/argos), or one line for Waybar, Polybar or tmux ([snippets](docs/configuration.md#linux-status-bars)).
 
