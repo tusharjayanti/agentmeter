@@ -6,7 +6,8 @@ Drop files into ~/.config/agentmeter/sessions/*.jsonl, one session per line:
    "turns": [{"ts": "2026-01-05T10:22:14Z", "model": "gpt-5", "input": 1200,
               "cache_write": 0, "cache_read": 9000, "output": 400}]}
 
-A turn may add "auto": true when a subagent or the harness picked its model (counted, not judged).
+A turn may add "auto": true when a subagent or the harness picked its model (counted, not judged),
+and "cost": dollars, when your tool knows what the turn cost (otherwise it is priced by model).
 Any tool you can export from (Cursor, Copilot, OpenCode, your own harness) can feed
 this with a few lines of script; the rest of agentmeter treats it like any other adapter.
 """
@@ -32,7 +33,8 @@ def sessions(root: Path, since: float | None = None):
         for d in read_jsonl(path):
             turns = [Turn(ts=t["ts"], model=t.get("model", "unknown"), input=t.get("input", 0),
                           cache_write=t.get("cache_write", 0), cache_read=t.get("cache_read", 0),
-                          output=t.get("output", 0), auto=bool(t.get("auto", False)))
+                          output=t.get("output", 0), auto=bool(t.get("auto", False)),
+                          cache_write_1h=t.get("cache_write_1h", 0), cost=t.get("cost"))
                      for t in d.get("turns", []) if t.get("ts")]
             if turns:
                 yield Session(tool=d.get("tool", "generic"), id=str(d.get("id", path.stem)),

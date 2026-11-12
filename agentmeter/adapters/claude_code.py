@@ -63,6 +63,7 @@ def _read(path: Path, s: Session, seen: set, auto: bool):
                                 cache_write=u.get("cache_creation_input_tokens", 0) or 0,
                                 cache_read=u.get("cache_read_input_tokens", 0) or 0,
                                 output=u.get("output_tokens", 0) or 0,
+                                cache_write_1h=(u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens", 0) or 0,
                                 auto=auto or bool(e.get("isSidechain"))))
 
 

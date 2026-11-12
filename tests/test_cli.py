@@ -32,11 +32,13 @@ def test_json(tmp_path):
 
 
 def test_report_lists_each_session_once(tmp_path):
-    r = run(tmp_path, "--week", "2026-W45")
+    r = run(tmp_path, "--week", "2026-W45", "--sessions")
     assert r.returncode == 0, r.stderr
     assert "=== Mon 2 Nov – Sun 8 Nov 2026 ===" in r.stdout and "subagents 340" in r.stdout
-    assert "on-policy" not in r.stdout and "225 tokens · 1 session\n" in r.stdout
-    assert r.stdout.count("fix the failing checkout test (160)") == 1
+    assert "on-policy" not in r.stdout and "225 tokens · <$0.01 · 1 session\n" in r.stdout
+    opus = r.stdout.split("claude-opus-5-5 · claude-code · 1 session")[1].split("\n\n")[0]
+    assert "160" in opus and opus.count("fix the failing checkout test") == 1
+    assert "fix the failing" not in run(tmp_path, "--week", "2026-W45").stdout     # details only with --sessions
     judged = run(tmp_path, "--week", "2026-W45", cfg={"routing": True})
     assert "subagents 340 (not judged)" in judged.stdout and "on-policy" in judged.stdout
 
@@ -99,7 +101,7 @@ def _two_weeks(tmp_path):
 def test_single_week_is_compared_with_the_one_before(tmp_path):
     cfg = _two_weeks(tmp_path)
     r = run(tmp_path, "--period", "2026-11-04", cfg=cfg)
-    assert "150 tokens · 1 session · ↑50% vs previous week (100)" in r.stdout and "Oct" not in r.stdout.split("\n")[1]
+    assert "150 tokens · <$0.01 · 1 session · ↑50% vs previous week (100)" in r.stdout and "Oct" not in r.stdout.split("\n")[1]
     d = json.loads(run(tmp_path, "--period", "2026-11-04", "--json", cfg=cfg).stdout)
     assert {w["period"] for w in d["periods"]} == {"2026-11-02"}          # the earlier week is only used for the comparison
 
@@ -113,3 +115,69 @@ def test_colour_only_when_asked(tmp_path):
     coloured = env_run(FORCE_COLOR="1")
     assert "\x1b[1m" in coloured and "\x1b[32m↑50%" in coloured          # increase in green
     assert "\x1b[" not in env_run(FORCE_COLOR="1", NO_COLOR="1")
+
+
+def test_table_fits_80_columns_and_has_cost(tmp_path):
+    cfg = _two_weeks(tmp_path)
+    out = run(tmp_path, "--periods", "2", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
+    assert max(len(line) for line in out.splitlines()) <= 80
+    assert "╭" in out and "│ gpt-5 " in out and "$0.15" in out    # 150 tokens at $1000 per million
+    assert "↑50%" in out and "API prices of" in out
+    d = json.loads(run(tmp_path, "--period", "2026-11-04", "--json", cfg=cfg).stdout)
+    assert d["periods"][0]["cost"] == round(150 * 1.25 / 1e6, 6) and d["periods"][0]["unpriced"] == 0
+
+
+def test_unpriced_models_say_so(tmp_path):
+    d = tmp_path / "s"; d.mkdir()
+    d.joinpath("s.jsonl").write_text(json.dumps({"tool": "x", "id": "1", "turns": [{"ts": "2026-11-04T10:00:00Z", "model": "mystery-1", "input": 500}]}) + "\n")
+    out = run(tmp_path, "--period", "2026-11-04", cfg={"tools": ["generic"], "roots": {"generic": str(d)}}).stdout
+    assert "500 tokens · – ·" in out and "no price (mystery-1)" in out
+
+
+def test_tui_needs_a_terminal(tmp_path):
+    r = run(tmp_path, "tui")
+    assert r.returncode != 0 and "needs a terminal" in r.stderr
+
+
+def test_tui_frame_draws_every_view(tmp_path):
+    from agentmeter import tui
+    cfg = _two_weeks(tmp_path)
+    (tmp_path / "cfg.json").write_text(json.dumps(cfg))
+    os.environ["AGENTMETER_CONFIG"] = str(tmp_path / "cfg.json")
+    os.environ["CLAUDE_CONFIG_DIR"] = str(tmp_path)          # a known limits reading, not this machine's
+    (tmp_path / ".claude.json").write_text(json.dumps({"cachedUsageUtilization": {"fetchedAtMs": 1794479411771, "utilization": {
+        "limits": [{"kind": "session", "percent": 4, "resets_at": "2099-01-01T00:00:00+00:00"}]}}}))
+    try:
+        from agentmeter.core import load_config
+        d = tui.Data(load_config()); d.load()
+        st = tui.State(d)
+        st.key = "2026-11-02"
+        for tab in range(4):
+            st.tab = tab
+            lines = tui.frame(st, 80, 24)
+            assert len(lines) == 24
+            assert all(sum(len(t) for t, _ in ln) <= 80 for ln in lines)
+        st.tab = 0
+        screen = tui.text(tui.frame(st, 80, 24))
+        assert "◀ Mon 2 Nov – Sun 8 Nov 2026 ▶" in screen and "gpt-5" in screen and "↑50%" in screen
+        assert "build it" in screen                      # the selected model's sessions
+        assert "LIMITS" not in screen                    # limits are about now, not a past week
+        st.key = d.per.current()
+        assert "LIMITS  Claude" in tui.text(tui.frame(st, 80, 24))
+    finally:
+        os.environ.pop("AGENTMETER_CONFIG"); os.environ.pop("CLAUDE_CONFIG_DIR")
+
+
+def test_limits_and_cost_split_in_output(tmp_path):
+    cfg = _two_weeks(tmp_path)
+    (tmp_path / ".claude.json").write_text(json.dumps({"cachedUsageUtilization": {"fetchedAtMs": 1794479411771, "utilization": {
+        "limits": [{"kind": "session", "percent": 4, "resets_at": "2099-01-01T00:00:00+00:00"}]}}}))
+    today = run(tmp_path, "--today", cfg=cfg).stdout                       # no sessions today, limits still shown
+    assert "no sessions" in today and "Claude limits: 5-hour 4% resets Thu 1 Jan" in today
+    past = run(tmp_path, "--period", "2026-11-04", cfg=cfg).stdout
+    assert "Claude limits" not in past                                     # limits are about now
+    assert "cost: \n" not in past and "cost:" not in past                   # $0.0002 rounds away: no empty split line
+    priced = run(tmp_path, "--period", "2026-11-04", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
+    assert "cost: input $0.15" in priced
+    d = json.loads(run(tmp_path, "--json", cfg=cfg).stdout)
+    assert d["limits"][0]["name"] == "5-hour" and d["config"]["limit_lines"][0].startswith("Claude limits: 5-hour 4%")
