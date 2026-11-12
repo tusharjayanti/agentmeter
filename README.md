@@ -22,7 +22,7 @@
 
 ## The problem
 
-You use Claude Code, Codex or Gemini CLI every day, and you can't easily answer: how many tokens did I use this week? On which models? More or less than last week?
+You use Claude Code, Codex or Gemini CLI every day, and you can't easily answer: how many tokens did I use this week? On which models? What would that cost at API prices? More or less than last week?
 
 The answer is already on your disk. Every one of these tools writes a session log with every model call and its token counts. agentmeter reads those logs and turns them into a number in your menu bar and a report at the end of every week. Nothing leaves your machine.
 
@@ -44,22 +44,29 @@ It needs Python 3.9 or newer and nothing else. On a Mac without developer tools,
 
 ## Always in view
 
-The menu bar shows the week's tokens so far. Click it for the breakdown by model, last week's total, and the latest report.
+The menu bar shows the week's tokens so far. Click it for the cost, the breakdown by model, last week's total, and the latest report.
 
 On Linux, the same number goes in your top bar: a GNOME extension through [Argos](https://github.com/p-e-w/argos), or one line for Waybar, Polybar or tmux ([snippets](docs/configuration.md#linux-status-bars)).
 
 ## Any range, any time
 
 <p align="center">
-  <img src="docs/images/terminal.png" width="760" alt="agentmeter in a terminal: this week's tokens, the change from last week, and a table of models with share bars">
+  <img src="docs/images/terminal.png" width="680" alt="agentmeter in a terminal: four weeks with tokens, cost and change, then this week's models in a table with share bars, cost and change">
 </p>
 
 ```sh
-agentmeter                     # the last 4 weeks, each compared with the week before
+agentmeter                     # the last 4 weeks, then this week per model, with cost
+agentmeter tui                 # full screen: flip through weeks, today, the last 5 hours, reports
 agentmeter --today             # or --since 6h, --since 3d, --from 2026-10-01 --to 2026-10-15
-agentmeter --period last       # one week: this, last, or any date in it
+agentmeter --period last       # one week: this, last, or any date in it; --sessions for the largest sessions
 agentmeter --json              # everything, for your own scripts
 ```
+
+<p align="center">
+  <img src="docs/images/tui.png" width="760" alt="agentmeter tui: a full-screen view with tabs for the week, today, the last 5 hours and reports; tokens and cost with changes, tokens per day, a model table, and the selected model's sessions">
+</p>
+
+Cost is what the tokens would cost at each vendor's API list prices, bundled and dated in the code. On a subscription it isn't your bill, but it's a fair way to compare weeks and models. [How it's worked out](docs/configuration.md#cost-prices).
 
 ## A report every week
 
@@ -80,14 +87,15 @@ Change your answers any time with `agentmeter init`, or **Change setup…** in t
 | `period` | when collection begins, and how long a window is: a week from any day, two weeks, a month, ten days |
 | `tools` | which tools to read |
 | `widget` | the menu bar look: a caption over the number, or an icon beside it |
+| `prices` | add or correct a model's price |
 | `routing` | optional: flag sessions where an expensive model did routine work |
 
 Every setting, the full command line and uninstall steps are in [docs/configuration.md](docs/configuration.md).
 
 ## Why agentmeter
 
-- **Nothing to install.** About 1,700 lines of standard-library Python, plus one Swift file for the menu bar. No Node, no pip, no Electron.
-- **No network.** It never connects to anything: no telemetry, no update checks, no pricing downloads.
+- **Nothing to install.** About 2,400 lines of standard-library Python, plus one Swift file for the menu bar. No Node, no pip, no Electron.
+- **No network.** It never connects to anything: no telemetry, no update checks, no price downloads (prices ship with the code).
 - **Your history is plain files.** One Markdown and one JSON file per week, readable without agentmeter.
 
 ## Works with

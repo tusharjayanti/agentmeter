@@ -34,7 +34,7 @@ def test_save_writes_finished_weeks_once(tmp_path):
     assert d["period"] == "2019-12-30" and d["end"] == "2020-01-05" and d["summary"]["fresh"] == 115
     assert {r["period"] for r in d["periods"] + d["sessions"]} == {"2019-12-30"}
     md = (tmp_path / "2019-12-30.md").read_text()
-    assert "# agentmeter: Mon 30 Dec – Sun 5 Jan 2020" in md and "**115 tokens** this week · 2 sessions" in md
+    assert "# agentmeter: Mon 30 Dec – Sun 5 Jan 2020" in md and "**115 tokens** this week · <$0.01 at API prices · 2 sessions" in md
     assert "fix typo \\| in readme" in md and "Previous week (Mon 23 Dec – Sun 29 Dec 2019): no data" in md
     assert "on-policy" not in md.lower() and d["previous"]["source"] is None
 
@@ -65,11 +65,14 @@ def test_report_compares_with_previous_week(tmp_path):
     weekly, ss = aggregate(sessions, P, by_period(MON, keys))
     assert report.save(tmp_path, weekly, ss, {}, keys, MON) == ["2019-12-30", "2020-01-06"]
     md = (tmp_path / "2020-01-06.md").read_text()
-    assert "**200 tokens** this week" in md and "Previous week (Mon 30 Dec – Sun 5 Jan 2020): 100 · **↑100%**" in md
-    assert "| claude-opus-5-5 | claude-code | 150 | 100 | ↑50% |" in md and "| claude-sonnet-5-5 | claude-code | 50 | 0 | new |" in md
+    assert "**200 tokens** this week" in md and "Previous week (Mon 30 Dec – Sun 5 Jan 2020): 100 · <$0.01 · **↑100%**" in md
+    assert "| claude-opus-5-5 | claude-code | 150 | <$0.01 | 100 | ↑50% |" in md
+    assert "| claude-sonnet-5-5 | claude-code | 50 | <$0.01 | 0 | new |" in md
     d = json.loads((tmp_path / "2020-01-06.json").read_text())
-    assert d["previous"] == {"period": "2019-12-30", "source": "report", "fresh": 100, "total": 100, "change_pct": 100.0}
+    assert d["previous"] == {"period": "2019-12-30", "source": "report", "fresh": 100, "total": 100, "cost": 0.0004,
+                             "change_pct": 100.0}
+    assert d["summary"]["cost"] == 0.0007 and d["prices_as_of"]
     # a model used last week but not this week still shows up, at 0
     weekly2, ss2 = aggregate(sessions[1:2], P, by_period(MON, keys))
     md2 = report.render_md("2020-01-13", [], [], MON, prev_rows=[r for r in weekly2 if r["period"] == "2020-01-06"])
-    assert "| claude-opus-5-5 | claude-code | 0 | 150 | ↓100% |" in md2
+    assert "| claude-opus-5-5 | claude-code | 0 | $0 | 150 | ↓100% |" in md2

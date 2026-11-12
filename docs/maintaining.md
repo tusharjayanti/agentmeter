@@ -5,7 +5,8 @@
 The README images in `docs/images/` use demo data, never real usage, and made-up projects and prompts.
 
 - `hero.png`: the menu bar item drawn in HTML (same font and sizes as the app) with the real menu window composited under it, on a gradient.
-- `terminal.png`: the real CLI output (`FORCE_COLOR=1 agentmeter --period this --prompts 1`) converted from ANSI to HTML in a window frame.
+- `terminal.png`: the real CLI output (`FORCE_COLOR=1 agentmeter`) converted from ANSI to HTML in a window frame.
+- `tui.png`: `agentmeter tui` drawn from `tui.frame(state, 100, 20)` (plain lines with styles) as HTML in a window frame; no terminal capture needed.
 - `report.png`: a real saved report rendered from its Markdown in a window frame.
 
 To retake them:

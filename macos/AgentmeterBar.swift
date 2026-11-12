@@ -138,7 +138,20 @@ func modelRow(_ model: String, width: Int, share: Double, value: Double, colour:
 struct Row {
     let period, tool, model: String
     let fresh, total: Double
+    let cost: Double?          // dollars at API list prices; nil when the model has no price
     let sessions: Int
+}
+
+// "$41.20", "$1,234", "<$0.01"; "–" when nothing had a price
+func money(_ x: Double?) -> String {
+    guard let x = x else { return "–" }
+    if x == 0 { return "$0" }
+    if x < 0.01 { return "<$0.01" }
+    let f = NumberFormatter()
+    f.numberStyle = .decimal
+    f.minimumFractionDigits = x >= 1000 ? 0 : 2
+    f.maximumFractionDigits = x >= 1000 ? 0 : 2
+    return "$" + (f.string(from: NSNumber(value: x)) ?? String(format: "%.2f", x))
 }
 
 struct Snapshot {
@@ -153,6 +166,10 @@ struct Snapshot {
     func rows(_ p: String) -> [Row] { rows.filter { $0.period == p }.sorted { $0.fresh > $1.fresh } }
     func fresh(_ p: String) -> Double { rows(p).reduce(0) { $0 + $1.fresh } }
     func total(_ p: String) -> Double { rows(p).reduce(0) { $0 + $1.total } }
+    func cost(_ p: String) -> Double? {
+        let priced = rows(p).compactMap { $0.cost }
+        return priced.isEmpty ? nil : priced.reduce(0, +)
+    }
 }
 
 func loadSnapshot() -> Snapshot {
@@ -184,6 +201,7 @@ func loadSnapshot() -> Snapshot {
                           model: r["model"] as? String ?? "?",
                           fresh: (r["fresh"] as? NSNumber)?.doubleValue ?? 0,
                           total: (r["total"] as? NSNumber)?.doubleValue ?? 0,
+                          cost: (r["cost"] as? NSNumber)?.doubleValue,
                           sessions: (r["sessions"] as? NSNumber)?.intValue ?? 0))
     }
     for r in obj["sessions"] as? [[String: Any]] ?? [] where (r["auto"] as? Bool) != true {
@@ -351,8 +369,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let sessions = s.sessions(s.thisPeriod)
             let show = #selector(showThisPeriod)
             menu.addItem(text("This \(s.name) (since \(since(s.thisPeriod)))", size: 12, color: .secondaryLabelColor, action: show))
-            menu.addItem(text("\(fmt(cur)) tokens · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15, action: show))
-            menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads", size: 11, color: .secondaryLabelColor, action: show))
+            menu.addItem(text("\(fmt(cur)) tokens · \(money(s.cost(s.thisPeriod))) · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15, action: show))
+            menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads · cost at API prices", size: 11, color: .secondaryLabelColor, action: show))
             menu.addItem(.separator())
             // one colour per model, the same in this week's rows and last week's submenu
             let rows = s.rows(s.thisPeriod), lastRows = s.rows(s.lastPeriod)
@@ -364,14 +382,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let it = NSMenuItem(title: r.model, action: show, keyEquivalent: "")
                 it.target = self
                 it.attributedTitle = modelRow(r.model, width: width, share: cur > 0 ? r.fresh / cur : 0, value: r.fresh, colour: colour[r.model]!)
-                it.toolTip = "\(r.tool) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · click for the full breakdown"
+                it.toolTip = "\(r.tool) · \(money(r.cost)) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · click for the full breakdown"
                 menu.addItem(it)
             }
             menu.addItem(.separator())
             // last week: total and change here, its models in a submenu
             let last = NSMenuItem(title: "Last \(s.name)", action: nil, keyEquivalent: "")
             let lineFont = NSFont.menuFont(ofSize: 12)
-            let line = NSMutableAttributedString(string: "Last \(s.name): \(fmt(prev))",
+            let line = NSMutableAttributedString(string: "Last \(s.name): \(fmt(prev)) · \(money(s.cost(s.lastPeriod)))",
                                                  attributes: [.font: lineFont, .foregroundColor: NSColor.labelColor])
             if prev > 0 {
                 line.append(NSAttributedString(string: "   this \(s.name) so far ", attributes: [.font: lineFont, .foregroundColor: NSColor.labelColor]))

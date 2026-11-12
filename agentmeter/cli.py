@@ -21,6 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import adapters, report
+from .prices import Prices, money
 from .core import (Periods, Policy, aggregate, by_period, by_range, change_label, config_path, load_config, on_policy_pct,
                    parse_since, since, span_label, validate)
 
@@ -46,18 +47,20 @@ class Style:
         self.on = on
         code = (lambda c: f"\x1b[{c}m") if on else (lambda c: "")
         self.b, self.dim, self.cyan, self.yellow, self.reset = code("1"), code("2"), code("36"), code("33"), code("0")
-        self.green, self.red = code("32"), code("31")
+        self.green, self.red, self.magenta, self.blue = code("32"), code("31"), code("35"), code("34")
 
 
 def pct(p):
     return f"{p:.0f}%" if p is not None else "–"
 
 
-def collect(tool_names, roots, since_ts=None):
+def collect(tool_names, roots, since_ts=None, quiet=False):
     mods = [adapters.load(t) for t in tool_names] if tool_names else adapters.available()
     for mod in mods:
         root = Path(roots.get(mod.NAME)).expanduser() if roots.get(mod.NAME) else mod.default_root()
         if not root.exists():
+            if quiet:
+                continue
             print(f"[{mod.NAME}] no logs yet in {adapters.where(mod, roots.get(mod.NAME))}", file=sys.stderr)
             continue
         yield from mod.sessions(root, since=since_ts)
@@ -119,7 +122,7 @@ def check(argv):
         print(f"  collection begins {per.begins:%a %-d %b %Y}: nothing is saved before then")
     wanted = per.back(args.periods)
     weekly, sessions = aggregate(collect(cfg.get("tools") or None, cfg.get("roots", {}), since(wanted)), policy,
-                                 by_period(per, wanted))
+                                 by_period(per, wanted), Prices(cfg.get("prices")))
 
     models = defaultdict(int)
     for r in weekly:
@@ -145,6 +148,160 @@ def check(argv):
             print(f"  {fmt(s['tokens']):>8}  {s['project']}: {s['prompt'][:90]}")
 
 
+# ---------------------------------------------------------------- text output
+
+PALETTE = ["cyan", "magenta", "yellow", "blue", "green"]
+
+
+def totals(rows) -> dict:
+    """window -> {fresh, total, cost, unpriced} summed over rows."""
+    out = defaultdict(lambda: {"fresh": 0, "total": 0, "cost": 0.0, "priced": False, "unpriced": 0})
+    for r in rows:
+        t = out[r["period"]]
+        t["fresh"] += r["fresh"]; t["total"] += r["total"]; t["unpriced"] += r.get("unpriced", 0)
+        if r.get("cost") is not None:
+            t["cost"] += r["cost"]; t["priced"] = True
+    return out
+
+
+def cost_of(t):
+    return t["cost"] if t["priced"] else None
+
+
+def clip(s: str, n: int) -> str:
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def change(st, cur, prev) -> str:
+    """Coloured change label; green for an increase, red for a decrease."""
+    if cur is None or prev is None:
+        return "–"
+    lab = change_label(cur, prev)
+    hue = st.green if lab.startswith("↑") else st.red if lab.startswith("↓") else ""
+    return f"{hue}{lab}{st.reset}" if hue else lab
+
+
+def visible(s: str) -> int:
+    import re
+    return len(re.sub(r"\x1b\[[0-9;]*m", "", s))
+
+
+def table(st, headers, rows, align):
+    """Rounded box table. Cells may hold ANSI codes; widths use the visible text."""
+    w = [max([visible(h)] + [visible(r[i]) for r in rows]) for i, h in enumerate(headers)]
+
+    def cell(text, i):
+        pad = " " * (w[i] - visible(text))
+        return pad + text if align[i] == ">" else text + pad
+
+    def rule(a, m, b):
+        return f"{st.dim}{a}" + m.join("─" * (x + 2) for x in w) + f"{b}{st.reset}"
+
+    bar = f"{st.dim}│{st.reset}"
+    out = [rule("╭", "┬", "╮"),
+           bar + bar.join(f" {st.dim}{cell(h, i)}{st.reset} " for i, h in enumerate(headers)) + bar,
+           rule("├", "┼", "┤")]
+    out += [bar + bar.join(f" {cell(c, i)} " for i, c in enumerate(r)) + bar for r in rows]
+    out.append(rule("╰", "┴", "╯"))
+    return "\n".join(out)
+
+
+def show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows=()):
+    from .prices import AS_OF, money
+    st = Style(use_color())
+    routing = bool(cfg.get("routing"))
+    by_week = defaultdict(list)
+    for r in weekly:
+        by_week[r["period"]].append(r)
+    keys = sorted(by_week)
+    cur = totals(weekly)
+    noun = per.name
+
+    if len(wanted) > 1:                                     # several windows: one line each, then the latest in detail
+        rows = []
+        for wk in sorted(wanted):
+            t, p = cur.get(wk), prev.get(per.previous(wk))
+            if not t:
+                rows.append([label(wk), "0", "–", "–"]); continue
+            rows.append([label(wk), f"{st.b}{fmt(t['fresh'])}{st.reset}", money(cost_of(t)),
+                         change(st, t["fresh"], p["fresh"]) if p else "–"])
+        print(table(st, [noun, "tokens", "cost", f"vs prev"], rows, "<>>>"))
+        keys = keys[-1:]
+
+    for wk in keys:
+        rows = sorted(by_week[wk], key=lambda r: -r["fresh"])
+        t = cur[wk]
+        fresh, cost = t["fresh"], cost_of(t)
+        n = len({(x["tool"], x["session"]) for x in sessions if x["period"] == wk and not x["auto"]})
+        print(f"\n{st.b}{st.cyan}{label(wk)}{st.reset}" if st.on else f"\n=== {label(wk)} ===")
+        line = f"{st.b}{fmt(fresh)} tokens{st.reset} · {st.b}{money(cost)}{st.reset} · {n} session{'s' * (n != 1)}"
+        p = None if adhoc else prev.get(per.previous(wk))
+        if p and p["fresh"]:
+            line += f" · {change(st, fresh, p['fresh'])} vs previous {noun} ({fmt(p['fresh'])})"
+        print(line)
+
+        prev_by = defaultdict(int)
+        if not adhoc:
+            for r in all_rows:
+                if r["period"] == per.previous(wk):
+                    prev_by[(r["tool"], r["model"])] += r["fresh"]
+        headers = ["model"] + (["tier"] if routing else []) + ["tool", "tokens", "share", "cost"] + ([] if adhoc else [f"vs prev"])
+        out = []
+        for i, r in enumerate(rows):
+            share = r["fresh"] / fresh if fresh else 0
+            k = round(share * 10)
+            hue = getattr(st, PALETTE[i % len(PALETTE)])
+            cells = [clip(r["model"], 24)] + ([r["tier"]] if routing else []) + [
+                r["tool"], f"{st.b}{fmt(r['fresh'])}{st.reset}", f"{hue}{'█' * k}{st.reset}{st.dim}{'░' * (10 - k)}{st.reset}",
+                money(r.get("cost"))]
+            if not adhoc:
+                pv = prev_by.get((r["tool"], r["model"]), 0)
+                cells.append(change(st, r["fresh"], pv) if p else "–")
+            out.append(cells)
+        align = "<" + ("<" if routing else "") + "<>" + "<>" + ("" if adhoc else ">")
+        print(table(st, headers, out, align))
+
+        auto = sum(r["auto_tokens"] for r in rows)
+        parts = [f"{fmt(t['total'])} incl. cache reads", f"in {fmt(sum(r['input'] for r in rows))}",
+                 f"cache writes {fmt(sum(r['cache_write'] for r in rows))}", f"out {fmt(sum(r['output'] for r in rows))}"]
+        if auto:
+            parts.append(f"subagents {fmt(auto)}" + (" (not judged)" if routing else ""))
+        if routing:
+            parts.insert(0, f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
+        print(f"{st.dim}" + " · ".join(parts) + st.reset)
+        notes = [f"API prices of {AS_OF}, not a subscription bill"]
+        if t["unpriced"]:
+            um = sorted({r["model"] for r in rows if r.get("unpriced")})
+            notes.append(f"{fmt(t['unpriced'])} tokens have no price ({', '.join(um[:3])}): add them under \"prices\" in config")
+        if not args.sessions:
+            notes.append("--sessions for details")
+        print(f"{st.dim}" + " · ".join(notes) + st.reset)
+        if routing:
+            note = unmapped_note(rows)
+            if note:
+                print(f"note: {note}")
+            off = sorted((s for s in sessions if s["period"] == wk and s["on_policy"] == "no"), key=lambda s: -s["tokens"])
+            if off:
+                print(f"\n{st.yellow}off-policy{st.reset}: {len(off)} session{'s' * (len(off) != 1)}, {fmt(sum(s['tokens'] for s in off))} tokens "
+                      f"{st.dim}(a shortlist to look at, not a verdict){st.reset}")
+                for s in off[: args.prompts or 3]:
+                    print(f"  [{s['category']}] {s['model']} · {s['project']}: {clip(s['prompt'], 70)} ({fmt(s['tokens'])})")
+        if args.sessions:
+            sessions_detail(st, rows, [s for s in sessions if s["period"] == wk and not s["auto"]], routing, args.prompts or 5)
+
+
+def sessions_detail(st, rows, ss, routing, n):
+    from .prices import money
+    for r in rows:
+        mine = sorted((s for s in ss if s["tool"] == r["tool"] and s["model"] == r["model"]), key=lambda s: -s["fresh"])
+        if not mine:
+            continue
+        print(f"\n{st.b}{r['model']}{st.reset} {st.dim}· {r['tool']} · {len(mine)} session{'s' * (len(mine) != 1)}{st.reset}")
+        for s in mine[:n]:
+            tag = f"[{s['category']}] " if routing else ""
+            print(f"  {fmt(s['fresh']):>7} {money(s.get('cost')):>8}  {st.dim}{clip(s['project'], 14):<14}{st.reset} {tag}{clip(s['prompt'], 60)}")
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["init"]:
@@ -152,6 +309,9 @@ def main(argv=None):
         return main_init()
     if argv[:1] == ["check"]:
         return check(argv[1:])
+    if argv[:1] == ["tui"]:
+        from .tui import main as tui_main
+        return tui_main(argv[1:])
     if not config_path().exists() and sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("AGENTMETER_NO_WIZARD") and "--tools" not in argv:
         print("No config yet; running setup (skip with AGENTMETER_NO_WIZARD=1).")
         from .wizard import main_init
@@ -177,7 +337,8 @@ def main(argv=None):
                     help=f"write <start>.md and <start>.json for each finished window that has no report yet "
                          f"(default DIR: {report.DEFAULT_DIR})")
     ap.add_argument("--force", action="store_true", help="with --save: rewrite reports that already exist")
-    ap.add_argument("--prompts", type=int, default=3, help="sample prompts per model per window")
+    ap.add_argument("--sessions", action="store_true", help="list the largest sessions per model under the table")
+    ap.add_argument("--prompts", type=int, metavar="N", help="how many sessions to list per model (default 5 with --sessions)")
     ap.add_argument("--tools", action="store_true", help="list adapters and whether their logs exist")
     args = ap.parse_args(argv)
 
@@ -244,10 +405,10 @@ def main(argv=None):
         label = per.label
     if adhoc:
         lookback = []
-    weekly, sessions = aggregate(collect(args.tool, roots, since(list(wanted) + lookback)), policy, bucket)
-    prev_fresh = defaultdict(int)          # window -> fresh tokens, for "vs previous" lines
-    for r in weekly:
-        prev_fresh[r["period"]] += r["fresh"]
+    weekly, sessions = aggregate(collect(args.tool, roots, since(list(wanted) + lookback)), policy, bucket,
+                                 Prices(cfg.get("prices")))
+    prev = totals(weekly)                  # window -> totals, for "vs previous" lines (includes the lookback window)
+    all_rows = weekly
     weekly = [r for r in weekly if r["period"] in wanted]
     sessions = [s for s in sessions if s["period"] in wanted]
 
@@ -257,7 +418,8 @@ def main(argv=None):
         if args.status:
             print(f"TOKENS {fmt(fresh)}"); return
         prev = sum(r["fresh"] for r in weekly if r["period"] == last_p)
-        tip = [f"Tokens this {per.name} ({per.label(this_p)}): {fmt(fresh)}",
+        cost = sum(r["cost"] for r in rows if r.get("cost") is not None) if any(r.get("cost") is not None for r in rows) else None
+        tip = [f"Tokens this {per.name} ({per.label(this_p)}): {fmt(fresh)} · {money(cost)} at API prices",
                f"{fmt(sum(r['total'] for r in rows))} including cache reads"]
         tip += [f"  {r['model'][:24]:<24} {fmt(r['fresh']):>7}" for r in rows]
         tip.append(f"Last {per.name}: {fmt(prev)}")
@@ -272,7 +434,7 @@ def main(argv=None):
             "labels": {k: label(k) for k in wanted}}
     if args.save:
         done = report.save(args.save, weekly, sessions, {k: meta[k] for k in ("tiers", "policy", "period")}, wanted,
-                           per, n_prompts=max(args.prompts, 5), force=args.force)
+                           per, n_prompts=max(args.prompts or 5, 5), force=args.force)
         d = Path(args.save).expanduser()
         print(f"wrote {', '.join(done)} to {d}" if done else f"no new finished {per.name}s to write in {d}")
         return
@@ -281,67 +443,8 @@ def main(argv=None):
         return
     if not weekly:
         print(f"no sessions in {label(wanted[0]) if adhoc else 'the selected ' + per.name + 's'}"); return
+    show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows)
 
-    by_week = defaultdict(list)
-    for r in weekly:
-        by_week[r["period"]].append(r)
-    sess_by = defaultdict(list)
-    for s in sessions:
-        sess_by[(s["period"], s["tool"], s["model"])].append(s)
-
-    routing = bool(cfg.get("routing"))
-    st = Style(use_color())
-    keys = sorted(by_week)
-    for i, wk in enumerate(keys):
-        rows = sorted(by_week[wk], key=lambda r: -r["fresh"])
-        fresh = sum(r["fresh"] for r in rows)
-        print(f"\n{st.b}{st.cyan}{label(wk)}{st.reset}" if st.on else f"\n=== {label(wk)} ===")
-        n = len({(x["tool"], x["session"]) for x in sessions if x["period"] == wk and not x["auto"]})
-        line = f"{st.b}{fmt(fresh)} tokens{st.reset} · {n} session{'s' * (n != 1)}"
-        if not adhoc:
-            prev = prev_fresh.get(per.previous(wk), 0)
-            if prev:
-                hue = st.green if fresh > prev else st.red if fresh < prev else ""
-                line += f" · {hue}{change_label(fresh, prev)}{st.reset} vs previous {per.name} ({fmt(prev)})"
-        print(line)
-        width = max([len(r["model"][:26]) for r in rows] + [5])
-        tier = f"{'tier':<10}" if routing else ""
-        print(f"{st.dim}  {'model':<{width}}  {tier}{'tool':<12}{'tokens':>8}  {'share':<16}{'sessions':>9}{st.reset}")
-        for r in rows:
-            share = r["fresh"] / fresh if fresh else 0
-            bar = "█" * round(share * 12) + "░" * (12 - round(share * 12))
-            t = f"{r['tier']:<10}" if routing else ""
-            print(f"  {r['model'][:26]:<{width}}  {t}{r['tool']:<12}{st.b}{fmt(r['fresh']):>8}{st.reset}  "
-                  f"{st.cyan}{bar}{st.reset} {100 * share:>3.0f}%{r['sessions']:>9}")
-        auto = sum(r["auto_tokens"] for r in rows)
-        parts = [f"{fmt(sum(r['total'] for r in rows))} including cache reads",
-                 f"in {fmt(sum(r['input'] for r in rows))}", f"cache writes {fmt(sum(r['cache_write'] for r in rows))}",
-                 f"out {fmt(sum(r['output'] for r in rows))}"]
-        if auto:
-            parts.append(f"subagents {fmt(auto)}" + (" (not judged)" if routing else ""))
-        if routing:
-            parts.insert(0, f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
-        print(f"{st.dim}  " + " · ".join(parts) + st.reset)
-        if routing:
-            note = unmapped_note(rows)
-            if note:
-                print(f"note: {note}")
-        for r in rows:
-            ss = [s for s in sess_by[(wk, r["tool"], r["model"])] if not s["auto"]]
-            if routing:
-                mix = ", ".join(f"{c} {100*n//max(1,r['total'])}%" for c, n in sorted(r["mix"].items(), key=lambda x: -x[1]))
-                print(f"\n  {r['model']} [{r['tier']}]: {r['sessions']} sessions — {mix}")
-                off = sorted((s for s in ss if s["on_policy"] == "no"), key=lambda s: -s["tokens"])
-                if off:
-                    print(f"    off-policy: {len(off)} sessions, {fmt(r['off_policy_tokens'])} tokens ({100*r['off_policy_tokens']//max(1,r['total'])}%)")
-                    for s in off[:args.prompts]:
-                        print(f"      [{s['category']}] {s['project']}: {s['prompt'][:90]} ({fmt(s['tokens'])})")
-                ss = [s for s in ss if s["on_policy"] != "no"]
-            else:
-                print(f"\n  {st.b}{r['model']}{st.reset}: {r['sessions']} session{'s' * (r['sessions'] != 1)}")
-            for s in sorted(ss, key=lambda s: -s["fresh"])[:args.prompts]:
-                tag = f"[{s['category']}] " if routing else ""
-                print(f"    • {tag}{st.dim}{s['project']}:{st.reset} {s['prompt'][:90]} {st.dim}({fmt(s['fresh'])}){st.reset}")
 
 if __name__ == "__main__":
     try:

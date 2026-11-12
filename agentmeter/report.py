@@ -12,10 +12,12 @@ import json
 from pathlib import Path
 
 from .core import Periods, change_label
+from .prices import AS_OF, money
 
 DEFAULT_DIR = "~/.local/share/agentmeter/reports"
 FOOTNOTE = ("Tokens are fresh tokens: input + cache writes + output. Cache reads (the model re-reading the "
-            "conversation so far, billed at a fraction of the price) are shown separately.")
+            "conversation so far, billed at a fraction of the price) are shown separately. Cost is what the tokens "
+            f"would cost at the vendors' API list prices (as of {AS_OF}); on a subscription it is not your bill.")
 
 
 def _fmt(n):
@@ -32,8 +34,10 @@ def _cell(s: str) -> str:
 
 
 def summary(rows: list[dict]) -> dict:
+    priced = [r["cost"] for r in rows if r.get("cost") is not None]
     return {"fresh": sum(r["fresh"] for r in rows), "total": sum(r["total"] for r in rows),
-            "cache_read": sum(r["cache_read"] for r in rows), "auto_tokens": sum(r["auto_tokens"] for r in rows)}
+            "cache_read": sum(r["cache_read"] for r in rows), "auto_tokens": sum(r["auto_tokens"] for r in rows),
+            "cost": round(sum(priced), 6) if priced else None, "unpriced": sum(r.get("unpriced", 0) for r in rows)}
 
 
 def n_sessions(sessions: list[dict]) -> int:
@@ -59,21 +63,23 @@ def render_md(wk: str, rows: list[dict], sessions: list[dict], periods: Periods,
     s, p = summary(rows), summary(list(prev_rows))
     pk, name = periods.previous(wk), periods.name
     out = [f"# agentmeter: {periods.label(wk)}", "",
-           f"**{_fmt(s['fresh'])} tokens** this {name} · {n_sessions(sessions)} session{'s' * (n_sessions(sessions) != 1)}", ""]
+           f"**{_fmt(s['fresh'])} tokens** this {name} · {money(s['cost'])} at API prices · "
+           f"{n_sessions(sessions)} session{'s' * (n_sessions(sessions) != 1)}", ""]
     if prev_rows:
-        out += [f"Previous {name} ({periods.label(pk)}): {_fmt(p['fresh'])} · **{_change(s['fresh'], p['fresh'])}**", ""]
+        cost = f" · {money(p['cost'])}" if p["cost"] is not None else ""
+        out += [f"Previous {name} ({periods.label(pk)}): {_fmt(p['fresh'])}{cost} · **{_change(s['fresh'], p['fresh'])}**", ""]
     else:
         out += [f"Previous {name} ({periods.label(pk)}): no data", ""]
     prev_by = {}
     for r in prev_rows:
         prev_by[(r["tool"], r["model"])] = prev_by.get((r["tool"], r["model"]), 0) + r["fresh"]
-    out += [f"| model | tool | tokens | previous {name} | change | sessions | turns |", "|---|---|--:|--:|--:|--:|--:|"]
+    out += [f"| model | tool | tokens | cost | previous {name} | change | sessions | turns |", "|---|---|--:|--:|--:|--:|--:|--:|"]
     for r in rows:
         pv = prev_by.pop((r["tool"], r["model"]), 0)
-        out.append(f"| {r['model']} | {r['tool']} | {_fmt(r['fresh'])} | {_fmt(pv) if prev_rows else '–'} | "
+        out.append(f"| {r['model']} | {r['tool']} | {_fmt(r['fresh'])} | {money(r.get('cost'))} | {_fmt(pv) if prev_rows else '–'} | "
                    f"{_change(r['fresh'], pv) if prev_rows else '–'} | {r['sessions']} | {r['turns']} |")
     for (tool, model), pv in sorted(prev_by.items(), key=lambda x: -x[1]):   # used last time, not this time
-        out.append(f"| {model} | {tool} | 0 | {_fmt(pv)} | {_change(0, pv)} | 0 | 0 |")
+        out.append(f"| {model} | {tool} | 0 | $0 | {_fmt(pv)} | {_change(0, pv)} | 0 | 0 |")
     out += ["", f"Including cache reads: {_fmt(s['total'])} this {name}"
             + (f", {_fmt(p['total'])} the previous {name}" if prev_rows else "") + "."]
     if s["auto_tokens"]:
@@ -81,7 +87,7 @@ def render_md(wk: str, rows: list[dict], sessions: list[dict], periods: Periods,
     big = sorted((x for x in sessions if not x["auto"]), key=lambda x: -x["fresh"])[:n_prompts]
     if big:
         out += ["", "## Largest sessions", ""]
-        out += [f"- {_fmt(x['fresh'])} · {x['project']} · {x['model']}: {_cell(x['prompt'][:120])}" for x in big]
+        out += [f"- {_fmt(x['fresh'])} · {money(x.get('cost'))} · {x['project']} · {x['model']}: {_cell(x['prompt'][:120])}" for x in big]
     out += ["", "---", f"_{FOOTNOTE}_", ""]
     return "\n".join(out)
 
@@ -91,10 +97,11 @@ def render_json(wk: str, rows: list[dict], sessions: list[dict], meta: dict, per
     s, p = summary(rows), summary(list(prev_rows))
     prev = {"period": periods.previous(wk), "source": prev_source,
             "fresh": p["fresh"] if prev_rows else None, "total": p["total"] if prev_rows else None,
+            "cost": p["cost"] if prev_rows else None,
             "change_pct": round(100 * (s["fresh"] - p["fresh"]) / p["fresh"], 1) if prev_rows and p["fresh"] else None}
     return json.dumps({"period": wk, "start": wk, "end": periods.end(wk).isoformat(),
                        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-                       "summary": {**s, "sessions": n_sessions(sessions)}, "previous": prev, "config": meta, "periods": rows, "sessions": sessions}, indent=1)
+                       "summary": {**s, "sessions": n_sessions(sessions)}, "prices_as_of": AS_OF, "previous": prev, "config": meta, "periods": rows, "sessions": sessions}, indent=1)
 
 
 def save(directory, rows_all, sessions, meta, keys, periods: Periods, today=None, n_prompts=5, force=False) -> list[str]:

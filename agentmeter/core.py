@@ -25,6 +25,8 @@ class Turn:
     cache_read: int = 0
     output: int = 0      # includes reasoning/thinking tokens where the tool counts them separately
     auto: bool = False   # model chosen by the harness (subagent, sidechain), not the user: counted, never judged
+    cache_write_1h: int = 0      # the part of cache_write that went to the 1-hour cache (priced higher), when logged
+    cost: float | None = None    # dollars, when the tool logs its own cost (Aider); otherwise priced from prices.py
 
     @property
     def total(self) -> int:
@@ -85,6 +87,7 @@ DEFAULT_CONFIG = {
     "routing": False,
     "roots": {},     # adapter name -> custom log root
     "tools": [],     # adapters to run; empty = every adapter whose logs exist
+    "prices": {},    # model id -> {input, output, cache_read, cache_write} in $ per million tokens; adds to prices.py
 }
 
 
@@ -100,7 +103,8 @@ def load_config() -> dict:
             user = json.loads(p.read_text())
         except ValueError as e:
             sys.exit(f"bad config {p}: {e}")
-        for k in ("tiers", "policy", "categories", "prompts_for_classification", "period", "week_start", "routing", "roots", "tools"):
+        for k in ("tiers", "policy", "categories", "prompts_for_classification", "period", "week_start", "routing", "roots", "tools",
+                  "prices"):
             if k in user:
                 cfg[k] = user[k]
         if isinstance(user.get("period"), dict):
@@ -158,6 +162,13 @@ def validate(cfg: dict) -> tuple[list[str], list[str]]:
                 errors.append(f"period.start must be a date (YYYY-MM-DD), got {per['start']!r}")
             if "week_start" in cfg:
                 warnings.append("week_start is ignored because period.start is set")
+    prices = cfg.get("prices") or {}
+    if not isinstance(prices, dict):
+        errors.append('prices must be an object like {"my-model": {"input": 1.25, "output": 10}}')
+    else:
+        for name, p in prices.items():
+            if not isinstance(p, dict) or not all(isinstance(v, (int, float)) for v in p.values()):
+                errors.append(f"prices.{name}: expected numbers per million tokens, e.g. {{\"input\": 1.25, \"output\": 10}}")
     return errors, warnings
 
 
@@ -378,12 +389,17 @@ def on_policy_pct(weekly_rows: Iterable[dict]):
 
 # ---------------------------------------------------------------- aggregation
 
-def aggregate(sessions: Iterable[Session], policy: Policy, bucket):
+def aggregate(sessions: Iterable[Session], policy: Policy, bucket, prices=None):
     """Returns (period_rows, session_rows) as lists of dicts.
 
     `bucket(local_datetime) -> key | None` puts each turn in a window (see by_period, by_range) or drops it.
     Period rows are keyed by (period, tool, model). Session rows are one per (session, period, model, auto);
-    subagent slices carry category "subagent" and are never judged against the policy."""
+    subagent slices carry category "subagent" and are never judged against the policy.
+    Rows carry `cost` (dollars at API prices, for the turns that have a price) and `unpriced`
+    (fresh tokens on turns whose model has no price)."""
+    if prices is None:
+        from .prices import Prices
+        prices = Prices()
     tok = defaultdict(lambda: defaultdict(int))   # (week, tool, model) -> field
     per = defaultdict(list)                       # (week, tool, model) -> session rows
     for s in sessions:
@@ -391,13 +407,21 @@ def aggregate(sessions: Iterable[Session], policy: Policy, bucket):
             continue
         cat = policy.classify(s.prompts)
         by = defaultdict(lambda: defaultdict(int))
+        first = {}
         for t in s.turns:
-            wk = bucket(local(t.ts))
+            when = local(t.ts)
+            wk = bucket(when)
             if wk is None:
                 continue
+            first.setdefault((wk, t.model, t.auto), when)
             b = by[(wk, t.model, t.auto)]
             b["input"] += t.input; b["cache_write"] += t.cache_write
             b["cache_read"] += t.cache_read; b["output"] += t.output; b["turns"] += 1
+            c = prices.cost(t)
+            if c is None:
+                b["unpriced"] += t.input + t.cache_write + t.output
+            else:
+                b["cost"] += c; b["priced"] += 1
         for (wk, model, auto), b in by.items():
             agg = tok[(wk, s.tool, model)]
             for k, v in b.items():
@@ -410,6 +434,8 @@ def aggregate(sessions: Iterable[Session], policy: Policy, bucket):
                 "prompt": (s.prompts[0].strip().splitlines()[0][:140] if s.prompts else ""),
                 "tokens": b["input"] + b["cache_write"] + b["cache_read"] + b["output"],
                 "fresh": b["input"] + b["cache_write"] + b["output"], "turns": b["turns"],
+                "cost": round(b["cost"], 6) if b["priced"] else None, "unpriced": b["unpriced"],
+                "start": first[(wk, model, auto)].isoformat(timespec="minutes"),
                 "on_policy": "n/a" if on is None else ("yes" if on else "no"),
             })
 
@@ -428,6 +454,7 @@ def aggregate(sessions: Iterable[Session], policy: Policy, bucket):
             "sessions": len({r["session"] for r in rows}), "turns": t["turns"],
             "input": t["input"], "cache_write": t["cache_write"], "cache_read": t["cache_read"],
             "output": t["output"], "total": inp + t["output"], "fresh": t["input"] + t["cache_write"] + t["output"],
+            "cost": round(t["cost"], 6) if t["priced"] else None, "unpriced": t["unpriced"],
             "cache_pct": round(100 * t["cache_read"] / inp, 1) if inp else 0.0,
             "off_policy_sessions": len(off), "off_policy_tokens": sum(r["tokens"] for r in off),
             "on_policy_tokens": sum(r["tokens"] for r in rows if r["on_policy"] == "yes"),

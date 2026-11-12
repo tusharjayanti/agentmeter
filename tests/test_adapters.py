@@ -24,6 +24,7 @@ def test_gemini():
 def test_aider():
     (s,) = list(aider.sessions(FX / "aider"))
     assert s.turns[0].model == "gpt-4o" and s.turns[0].input == 2100 and s.turns[0].output == 150
+    assert s.turns[0].cost == 0.01          # Aider's own figure, used as the turn's cost
 
 
 def test_claude_code():
