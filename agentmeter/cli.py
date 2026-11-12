@@ -467,7 +467,8 @@ def main(argv=None):
         print(f"wrote {', '.join(done)} to {d}" if done else f"no new finished {per.name}s to write in {d}")
         return
     if args.json:
-        from .prices import split
+        from .limits import age, short
+        from .prices import PARTS, split
         limits = all_limits()
         parts = defaultdict(lambda: defaultdict(float))
         for r in weekly:
@@ -475,6 +476,15 @@ def main(argv=None):
                 parts[r["period"]][k] += v
         meta["cost_split"] = {k: split(v) for k, v in parts.items()}      # ready-made text for the menu bar app
         meta["limit_lines"] = limit_lines(Style(False), limits)
+        # rows for the menu bar app, drawn like the model rows: [label, dollars] largest first; limits with a note
+        names = dict(PARTS)
+        meta["cost_parts"] = {k: [[names.get(n, n), round(x, 4)] for n, x in sorted(v.items(), key=lambda kv: -kv[1]) if x >= 0.005]
+                              for k, v in parts.items()}
+        shown = [x for x in limits if x["percent"] or "(" not in x["name"]]
+        meta["limit_rows"] = [{"label": f"{x['tool']} {x['name']}", "percent": x["percent"], "stale": x["stale"],
+                               "note": short(x)} for x in shown]
+        meta["limits_caption"] = " · ".join(f"{t} {age(next(x for x in shown if x['tool'] == t))}"
+                                            for t in dict.fromkeys(x["tool"] for x in shown))
         json.dump({"periods": weekly, "sessions": sessions, "config": meta, "limits": limits}, sys.stdout, indent=1)
         return
     if not weekly:

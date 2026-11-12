@@ -120,20 +120,30 @@ func shareBar(_ share: Double, colour: NSColor, width: CGFloat = 96, height: CGF
     }
 }
 
-/// "claude-opus-5-5   [bar]   1.23M": name, the model's share of the window as a bar, the value.
-func modelRow(_ model: String, width: Int, share: Double, value: Double, colour: NSColor) -> NSAttributedString {
+/// "claude-opus-5-5   [bar]   1.23M   $10.20": a label, a bar, a value, and optional extra text.
+/// Models, the cost split and the plan limits all use it, so they line up.
+func barRow(_ label: String, width: Int, share: Double, value: String, extra: String = "", extraRight: Bool = true,
+            colour: NSColor, dim: Bool = false) -> NSAttributedString {
     let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    let name = model.count > width ? String(model.prefix(width)) : model.padding(toLength: width, withPad: " ", startingAt: 0)
-    let v = fmt(value)
-    let out = NSMutableAttributedString(string: name + "  ", attributes: [.font: mono, .foregroundColor: NSColor.labelColor])
+    let ink: NSColor = dim ? .secondaryLabelColor : .labelColor
+    let name = label.count > width ? String(label.prefix(width)) : label.padding(toLength: width, withPad: " ", startingAt: 0)
+    let out = NSMutableAttributedString(string: name + "  ", attributes: [.font: mono, .foregroundColor: ink])
     let bar = NSTextAttachment()
     bar.image = shareBar(share, colour: colour)
     bar.bounds = NSRect(x: 0, y: 1, width: 96, height: 7)
     out.append(NSAttributedString(attachment: bar))
-    out.append(NSAttributedString(string: String(repeating: " ", count: max(2, 9 - v.count)) + v,
-                                  attributes: [.font: mono, .foregroundColor: NSColor.labelColor]))
+    out.append(NSAttributedString(string: String(repeating: " ", count: max(2, 9 - value.count)) + value,
+                                  attributes: [.font: mono, .foregroundColor: ink]))
+    if !extra.isEmpty {
+        let pad = extraRight ? String(repeating: " ", count: max(2, 10 - extra.count)) : "   "
+        out.append(NSAttributedString(string: pad + extra, attributes: [.font: mono, .foregroundColor: NSColor.secondaryLabelColor]))
+    }
     return out
 }
+
+/// Bar colours for the cost split, by kind of token.
+let costColour: [String: NSColor] = ["cache reads": .systemIndigo, "cache writes": .systemPink, "output": .systemGreen,
+                                     "input": .systemYellow, "logged by the tool": .systemGray]
 
 struct Row {
     let period, tool, model: String
@@ -158,8 +168,9 @@ struct Snapshot {
     var rows: [Row] = []
     var thisPeriod = "", lastPeriod = "", name = "week"
     var labels: [String: String] = [:]
-    var costSplit: [String: String] = [:]     // period -> "cache reads $5.40 · cache writes $2.68 · output $2.37"
-    var limitLines: [String] = []             // "Claude limits: 5-hour 4% resets 20:29 · week 1% … · as of 16:00"
+    var costParts: [String: [(String, Double)]] = [:]   // period -> [("cache reads", 5.40), …], largest first
+    var limitRows: [(label: String, percent: Double, stale: Bool, note: String)] = []
+    var limitsCaption = ""                               // "Claude as of 16:00"
     var sessionKeys: [String: Set<String>] = [:]   // period -> distinct "tool/session" (a session using two models counts once)
     var error: String?
 
@@ -198,8 +209,17 @@ func loadSnapshot() -> Snapshot {
     s.lastPeriod = cfg["last_period"] as? String ?? ""
     s.name = (cfg["period"] as? [String: Any])?["name"] as? String ?? "week"
     s.labels = cfg["labels"] as? [String: String] ?? [:]
-    s.costSplit = cfg["cost_split"] as? [String: String] ?? [:]
-    s.limitLines = cfg["limit_lines"] as? [String] ?? []
+    for (period, parts) in cfg["cost_parts"] as? [String: [[Any]]] ?? [:] {
+        s.costParts[period] = parts.compactMap { p in
+            guard p.count == 2, let n = p[0] as? String, let v = (p[1] as? NSNumber)?.doubleValue else { return nil }
+            return (n, v)
+        }
+    }
+    for r in cfg["limit_rows"] as? [[String: Any]] ?? [] {
+        s.limitRows.append((label: r["label"] as? String ?? "", percent: (r["percent"] as? NSNumber)?.doubleValue ?? 0,
+                            stale: r["stale"] as? Bool ?? false, note: r["note"] as? String ?? ""))
+    }
+    s.limitsCaption = cfg["limits_caption"] as? String ?? ""
     for r in obj["periods"] as? [[String: Any]] ?? [] {
         s.rows.append(Row(period: r["period"] as? String ?? "", tool: r["tool"] as? String ?? "",
                           model: r["model"] as? String ?? "?",
@@ -375,25 +395,47 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(text("This \(s.name) (since \(since(s.thisPeriod)))", size: 12, color: .secondaryLabelColor, action: show))
             menu.addItem(text("\(fmt(cur)) tokens · \(money(s.cost(s.thisPeriod))) · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15, action: show))
             menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads · cost at API prices", size: 11, color: .secondaryLabelColor, action: show))
-            if let split = s.costSplit[s.thisPeriod], !split.isEmpty {
-                menu.addItem(text("cost: \(split)", size: 11, color: .secondaryLabelColor, action: show))
-            }
-            for line in s.limitLines {
-                menu.addItem(text(line, size: 11, color: .secondaryLabelColor))
-            }
             menu.addItem(.separator())
             // one colour per model, the same in this week's rows and last week's submenu
             let rows = s.rows(s.thisPeriod), lastRows = s.rows(s.lastPeriod)
             var colour: [String: NSColor] = [:]
             for r in rows + lastRows where colour[r.model] == nil { colour[r.model] = palette[colour.count % palette.count] }
-            let width = min(24, (rows + lastRows).map { $0.model.count }.max() ?? 10)
+            let parts = s.costParts[s.thisPeriod] ?? []
+            let labels = (rows + lastRows).map { $0.model } + parts.map { $0.0 } + s.limitRows.map { $0.label }
+            let width = min(24, labels.map { $0.count }.max() ?? 10)
             if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: show)) }
             for r in rows {
                 let it = NSMenuItem(title: r.model, action: show, keyEquivalent: "")
                 it.target = self
-                it.attributedTitle = modelRow(r.model, width: width, share: cur > 0 ? r.fresh / cur : 0, value: r.fresh, colour: colour[r.model]!)
-                it.toolTip = "\(r.tool) · \(money(r.cost)) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · click for the full breakdown"
+                it.attributedTitle = barRow(r.model, width: width, share: cur > 0 ? r.fresh / cur : 0, value: fmt(r.fresh),
+                                            extra: money(r.cost), colour: colour[r.model]!)
+                it.toolTip = "\(r.tool) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · click for the full breakdown"
                 menu.addItem(it)
+            }
+            // what the cost is made of, as bars of the same kind
+            let costTotal = parts.reduce(0) { $0 + $1.1 }
+            if !parts.isEmpty {
+                menu.addItem(.separator())
+                menu.addItem(text("COST · at API prices", size: 10, color: .secondaryLabelColor))
+                for (name, dollars) in parts {
+                    let it = NSMenuItem(title: name, action: show, keyEquivalent: "")
+                    it.target = self
+                    it.attributedTitle = barRow(name, width: width, share: costTotal > 0 ? dollars / costTotal : 0, value: "",
+                                                extra: money(dollars), colour: costColour[name] ?? .systemGray)
+                    menu.addItem(it)
+                }
+            }
+            // plan limits, from the tools' own last reading
+            if !s.limitRows.isEmpty {
+                menu.addItem(.separator())
+                menu.addItem(text("LIMITS · \(s.limitsCaption)", size: 10, color: .secondaryLabelColor))
+                for l in s.limitRows {
+                    let hue: NSColor = l.stale ? .systemGray : l.percent >= 90 ? .systemRed : l.percent >= 70 ? .systemOrange : .systemGreen
+                    let it = NSMenuItem(title: l.label, action: nil, keyEquivalent: "")
+                    it.attributedTitle = barRow(l.label, width: width, share: l.percent / 100, value: "\(Int(l.percent))%",
+                                                extra: l.note, extraRight: false, colour: hue, dim: l.stale)
+                    menu.addItem(it)
+                }
             }
             menu.addItem(.separator())
             // last week: total and change here, its models in a submenu
@@ -412,7 +454,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for r in lastRows {
                 let it = NSMenuItem(title: r.model, action: #selector(showLastPeriod), keyEquivalent: "")
                 it.target = self
-                it.attributedTitle = modelRow(r.model, width: width, share: prev > 0 ? r.fresh / prev : 0, value: r.fresh, colour: colour[r.model]!)
+                it.attributedTitle = barRow(r.model, width: width, share: prev > 0 ? r.fresh / prev : 0, value: fmt(r.fresh),
+                                            extra: money(r.cost), colour: colour[r.model]!)
                 sub.addItem(it)
             }
             if lastRows.isEmpty { sub.addItem(text("No sessions", color: .secondaryLabelColor)) }
