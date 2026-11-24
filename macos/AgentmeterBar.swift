@@ -486,7 +486,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if lastRows.isEmpty { sub.addItem(text("No sessions", color: .secondaryLabelColor)) }
             sub.addItem(.separator())
             let hasReport = FileManager.default.fileExists(atPath: reportsURL.appendingPathComponent("\(s.lastPeriod).md").path)
-            sub.addItem(action(hasReport ? "Open its report" : "Open full view", #selector(openLastPeriod)))
+            sub.addItem(action(hasReport ? "Open last \(s.name)'s report" : "Open full view…", #selector(openLastPeriod)))
             last.submenu = sub
             menu.addItem(last)
         }
