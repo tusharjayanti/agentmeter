@@ -7,8 +7,9 @@ Markers used:
   "# aider chat started at 2026-01-05 10:22:14"   -> new session
   "> Model: gpt-4o with diff edit format"         -> model
   "#### <prompt>"                                 -> user prompt
-  "> Tokens: 12k sent, 1.2k received. Cost: ..."  -> one turn (sent = input, received = output)
-Aider does not report cache reads, so they are 0.
+  "> Tokens: 12k sent, 1.2k received. Cost: $0.01 message, $0.05 session."
+                                                  -> one turn (sent = input, received = output, Aider's own cost)
+Aider does not report cache reads, so they are 0. Its own cost figure is used as the turn's cost.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ _START = re.compile(r"^# aider chat started at (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d
 _MODEL = re.compile(r"^> Model: (\S+)")
 _TOK = re.compile(r"^> Tokens: ([\d.,]+)(k?) sent(?:.*?([\d.,]+)(k?) received)?", re.I)
 _PROMPT = re.compile(r"^#### (.+)")
+_COST = re.compile(r"Cost: \$([\d.,]+) message", re.I)
 
 
 def _n(v, k) -> int:
@@ -78,7 +80,9 @@ def sessions(root: Path, since: float | None = None):
                 s.prompts.append(m.group(1)); continue
             m = _TOK.match(line)
             if m:
+                c = _COST.search(line)
                 s.turns.append(Turn(ts=start, model=model, input=_n(m.group(1), m.group(2)),
-                                    output=_n(m.group(3), m.group(4)) if m.group(3) else 0))
+                                    output=_n(m.group(3), m.group(4)) if m.group(3) else 0,
+                                    cost=float(c.group(1).replace(",", "")) if c else None))
         if s and s.turns:
             yield s

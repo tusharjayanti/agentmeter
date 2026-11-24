@@ -7,7 +7,8 @@
 #   bash install.sh --widget-only | --job-only   when the CLI came from Homebrew
 # macOS: launchd job, native menu bar app built with swiftc (Xcode Command Line Tools), started at login.
 # Linux: systemd user timer; GNOME gets the top-bar plugin via Argos if installed,
-#        other bars use `agentmeter --status` / `--status-json` (snippets printed). Bars start with your session.
+#        other bars use `agentmeter --status` / `--status-json` (see docs/configuration.md). Bars start with your session.
+# Output is one line per part; how to remove each part is in docs/configuration.md.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN="$HOME/.local/bin"; DATA="$HOME/.local/share/agentmeter"; CFGDIR="$HOME/.config/agentmeter"
@@ -26,17 +27,18 @@ else
   # versions before 0.2 installed into ~/bin; remove those copies (only agentmeter's own files)
   for f in agentmeter agentmeter-bar agentmeter-weekly.sh; do [ -f "$HOME/bin/$f" ] && rm "$HOME/bin/$f" && echo "moved:  removed old $HOME/bin/$f"; done
   rmdir "$HOME/bin" 2>/dev/null || true
-  echo "cli:    $AM   (config: $CFGDIR/config.json)"
+  echo "cli:    $AM"
 fi
 [[ " $* " == *" --widget-only "* ]] && set -- --no-job
 [[ " $* " == *" --job-only "* ]] && set -- --no-widget
-AGENTMETER_NO_WIZARD=1 "$AM" --tools
+FOUND="$(AGENTMETER_NO_WIZARD=1 "$AM" --tools 2>/dev/null | awk '$2 == "found" {printf "%s%s", sep, $1; sep=", "}')"
+echo "logs:   ${FOUND:-none yet (agentmeter picks them up once you use Claude Code, Codex, Gemini CLI or Aider)}"
 
 # Setup questions: run now, before the job and widget, so their first numbers use
 # your policy. Skipped when a config exists (re-run any time: agentmeter init),
 # when not at a terminal, or with --no-init.
 if [ -f "$CFGDIR/config.json" ]; then
-  echo "setup:  using existing $CFGDIR/config.json (change it with: agentmeter init)"
+  echo "setup:  using $CFGDIR/config.json (change: agentmeter init)"
 elif [ -t 0 ] && [ -t 1 ] && [[ " $* " != *" --no-init "* ]]; then
   "$AM" init || echo "setup:  skipped; defaults apply until you run: agentmeter init"
 else
@@ -77,7 +79,7 @@ if [ "$(uname)" = "Darwin" ] && [[ " $* " != *" --no-job "* ]]; then
 EOP
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$PLIST"
-  echo "job:    hourly + at login, saves each finished window → $DATA/reports  (remove: launchctl bootout gui/$(id -u)/$LABEL)"
+  echo "job:    saves a report when each window ends → $DATA/reports"
 elif [ "$(uname)" = "Linux" ] && [[ " $* " != *" --no-job "* ]] && command -v systemctl >/dev/null; then
   UNIT="$HOME/.config/systemd/user"; mkdir -p "$UNIT"
   cat > "$UNIT/agentmeter-weekly.service" <<EOU
@@ -99,7 +101,7 @@ WantedBy=timers.target
 EOU
   if systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now agentmeter-weekly.timer 2>/dev/null; then
     "$BIN/agentmeter-weekly.sh" || true
-    echo "job:    hourly via systemd user timer, saves each finished window → $DATA/reports  (remove: systemctl --user disable --now agentmeter-weekly.timer)"
+    echo "job:    saves a report when each window ends → $DATA/reports"
     loginctl show-user "$(id -un)" 2>/dev/null | grep -q 'Linger=yes' || echo "note: 'loginctl enable-linger $(id -un)' lets the timer fire while you are logged out"
   else
     echo "job:    units written to $UNIT but systemd --user is not reachable; enable later with: systemctl --user enable --now agentmeter-weekly.timer"
@@ -133,25 +135,17 @@ EOP
     launchctl bootout "gui/$(id -u)/$BAR_LABEL" 2>/dev/null || true
     pkill -f "$BIN/agentmeter-bar" 2>/dev/null || true
     launchctl bootstrap "gui/$(id -u)" "$BAR_PLIST"
-    echo "widget: menu bar app $BIN/agentmeter-bar, starts at login (Quit from its menu closes it until next login;"
-    echo "        remove: launchctl bootout gui/$(id -u)/$BAR_LABEL && rm $BAR_PLIST)"
+    echo "widget: menu bar app, starts at login"
     # earlier versions installed a SwiftBar plugin; remove only that file, leave SwiftBar itself alone
     OLDDIR="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null || echo "$HOME/.swiftbar")"
-    if [ -f "$OLDDIR/agentmeter.1h.py" ]; then rm "$OLDDIR/agentmeter.1h.py"; echo "        removed the old SwiftBar plugin $OLDDIR/agentmeter.1h.py"; fi
+    [ -f "$OLDDIR/agentmeter.1h.py" ] && rm "$OLDDIR/agentmeter.1h.py" || true
   fi
 elif [ "$(uname)" = "Linux" ] && [[ " $* " != *" --no-widget "* ]]; then
   if [ -d "$HOME/.config/argos" ]; then
     cp "$HERE/widget/agentmeter.1h.py" "$HOME/.config/argos/agentmeter.1h.py"; chmod +x "$HOME/.config/argos/agentmeter.1h.py"
-    echo "widget: GNOME top bar via Argos → ~/.config/argos/agentmeter.1h.py"
+    echo "widget: GNOME top bar (Argos)"
   else
-    cat <<EOT
-widget: no Argos found. Use \`agentmeter --status\` from any bar, e.g.
-  Waybar  (~/.config/waybar/config):
-    "custom/agentmeter": {"exec": "$BIN/agentmeter --status-json", "return-type": "json", "interval": 900}
-  Polybar (config.ini):
-    [module/agentmeter]  type = custom/script  exec = $BIN/agentmeter --status  interval = 900
-  i3status-rust / tmux:  agentmeter --status
-  GNOME:  install the Argos extension, re-run install.sh
-EOT
+    echo "widget: for Waybar, Polybar or tmux, see 'Linux status bars' in docs/configuration.md"
   fi
 fi
+echo "done:   run agentmeter, or agentmeter tui for the full-screen view"
