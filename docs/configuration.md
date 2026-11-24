@@ -44,12 +44,31 @@ Claude Code's `/usage` (Usage tab) counts each API call once and agrees with age
 
 ## Plan limits
 
-On a subscription, agentmeter shows how much of your 5-hour and weekly limits you have used, in the CLI (current window and ad hoc ranges), `agentmeter tui`, the menu bar menu, the Linux widget and `--json` (`limits`). It reads the copy each tool keeps on disk; it never contacts Anthropic or OpenAI.
+On a subscription, agentmeter shows how much of your 5-hour and weekly limits you have used, in the CLI (current window and ad hoc ranges), `agentmeter tui`, the menu bar menu, the Linux widget and `--json` (`limits`). It only reads what the tools hand over or keep on disk; it never contacts Anthropic or OpenAI.
 
-- Claude Code: `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`), key `cachedUsageUtilization`, the reading `/usage` shows. Only that key is read; the rest of the file is account settings.
-- Codex CLI: the `rate_limits` on the last `token_count` event of the newest session log.
+**Claude Code: turn on the status line.** Claude Code shares your limits with exactly one thing, its [status line](https://code.claude.com/docs/en/statusline.md): after every reply it runs the status line command with `rate_limits.five_hour` and `rate_limits.seven_day` (percent used, reset time). `agentmeter setup` offers to make `agentmeter statusline` that command, which saves the reading to `~/.local/share/agentmeter/limits/claude.json` and shows a short line in Claude Code:
 
-A reading is as fresh as the tool's last check, so it is labelled `as of 16:00`. Once its reset time has passed it shows `reset since` instead of a stale percentage. Both formats are internal to the tools; if one changes, agentmeter shows no limits rather than wrong ones. API-key users have no plan limits, so nothing is shown.
+```
+694k tokens this week · 5h 21% · week 4%
+```
+
+It sets only the `statusLine` key of `~/.claude/settings.json`, and never replaces a status line you already have. If you have one, add agentmeter to your script instead; `--quiet` saves the reading and prints nothing:
+
+```sh
+input=$(cat)
+echo "$input" | ~/.local/bin/agentmeter statusline --quiet
+# ... your own status line, using "$input"
+```
+
+Without the status line, agentmeter falls back to the copy `/usage` saves in `~/.claude.json` (key `cachedUsageUtilization`, the only key read). That copy changes only when you open `/usage`, so it is often hours old. Whichever reading is newer is shown. `agentmeter doctor` says which one is in use.
+
+Limits are shared with the Claude app and claude.ai: use there shows up after your next Claude Code reply.
+
+**Codex CLI:** nothing to set up. Codex writes the limits into its session log after every reply (`rate_limits` on `token_count` events), and agentmeter reads the newest.
+
+**Gemini CLI:** it doesn't share its quota, so none is shown. API-key users of any tool have no plan limits.
+
+A reading is labelled with its time (`as of 16:00`). Once a limit's reset time has passed, its old percentage no longer applies: it shows `reset at 07:38` with no bar, until the next reading. If a tool's format changes, agentmeter shows no limits rather than wrong ones.
 
 ## Menu bar: `widget`
 
@@ -90,7 +109,7 @@ Five commands:
 agentmeter                 # this window: tokens, cost, models, plan limits (after a table of the last 4)
 agentmeter tui             # full-screen view: flip through windows, today, the last 5 hours, reports
 agentmeter reports         # saved reports; `reports last` or `reports DATE` prints one
-agentmeter setup           # the setup questions: tools, window, routing
+agentmeter setup           # the setup questions: tools, Claude status line, window, routing
 agentmeter doctor          # is it working: config, tools found, windows, reports, limits, background parts
 ```
 
@@ -112,6 +131,7 @@ agentmeter --json                  # {"periods": [...], "sessions": [...], "conf
 agentmeter --status                # TOKENS 1.13M
 agentmeter --status-json           # {"text", "tooltip", "class"}, text in Pango markup, for Waybar
 agentmeter reports save [--force]  # write reports for finished windows that have none yet (the job runs this hourly)
+agentmeter statusline [--quiet]    # Claude Code's status line command: saves plan limits from its input (see Plan limits)
 agentmeter --tool codex            # only this tool; repeatable
 agentmeter --root codex=/path      # read a tool's logs from somewhere else
 ```
@@ -182,5 +202,7 @@ launchctl bootout gui/$(id -u)/io.github.agentmeter.bar
 launchctl bootout gui/$(id -u)/io.github.agentmeter.weekly
 rm ~/Library/LaunchAgents/io.github.agentmeter.*.plist ~/.local/bin/agentmeter*
 ```
+
+If you turned on the Claude status line, remove the `statusLine` entry from `~/.claude/settings.json` (or answer No to it in `agentmeter setup` before uninstalling).
 
 On Linux: `systemctl --user disable --now agentmeter-weekly.timer`, then remove `~/.local/bin/agentmeter*` and the plugin from your bar. Your config and reports stay in `~/.config/agentmeter` and `~/.local/share/agentmeter` until you delete them.

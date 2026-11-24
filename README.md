@@ -85,7 +85,7 @@ Claude 5-hour   ██████────   62%   resets 18:44
 Claude week     ████──────   41%   resets Mon 16 Nov
 ```
 
-How much of each subscription limit you have used, the same figures as Claude Code's `/usage`. Green below 70%, orange from 70%, red from 90%. agentmeter never goes online: it reads the copy Claude Code saves in `~/.claude.json`, and the limits Codex writes into its logs. Once a reset time has passed the reading is out of date, so the bars turn grey; opening `/usage` in Claude Code refreshes it. API-key users have no plan limits, so this part is left out. See [Plan limits](docs/configuration.md#plan-limits).
+How much of each subscription limit you have used, the same figures as Claude Code's `/usage`. Green below 70%, orange from 70%, red from 90%. agentmeter never goes online. With the Claude status line on (`agentmeter setup` offers it), Claude Code hands agentmeter the limits after every reply; without it, agentmeter reads the copy `/usage` saves, which is only as recent as the last time you opened `/usage`. Codex writes its limits into its logs. Once a limit resets, its row shows when ("reset at 07:38") until the next reading. API-key users have no plan limits, so this part is left out. See [Plan limits](docs/configuration.md#plan-limits).
 
 #### 4. Last week
 
@@ -124,7 +124,7 @@ Any range: `agentmeter --today`, `--since 6h`, `--from 2026-10-01 --to 2026-10-1
 
 Cost is what the tokens would cost at each vendor's API list prices, bundled and dated in the code. On a subscription it isn't your bill, but it's a fair way to compare weeks and models. [How it's worked out](docs/configuration.md#cost-prices).
 
-Plan limits (Claude's and Codex's 5-hour and weekly) come from the copy each tool already keeps on disk, so agentmeter still never goes online. [Details](docs/configuration.md#plan-limits).
+Plan limits (Claude's and Codex's 5-hour and weekly) come from what each tool hands over locally, so agentmeter still never goes online. For Claude Code, `agentmeter setup` offers to be its status line, which keeps them current after every reply. [Details](docs/configuration.md#plan-limits).
 
 ## A report every week
 

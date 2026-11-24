@@ -449,12 +449,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 for l in s.limitRows {
                     let hue: NSColor = l.stale ? .systemGray : l.percent >= 90 ? .systemRed : l.percent >= 70 ? .systemOrange : .systemGreen
                     let it = NSMenuItem(title: l.label, action: nil, keyEquivalent: "")
-                    it.attributedTitle = barRow(l.label, width: width, share: l.percent / 100, value: "\(Int(l.percent))%",
-                                                extra: l.stale ? "" : l.note, extraRight: false, colour: hue, dim: l.stale)
+                    // a window that has reset since the reading: its old percentage no longer applies, so no bar and no number
+                    it.attributedTitle = barRow(l.label, width: width, share: l.stale ? 0 : l.percent / 100,
+                                                value: l.stale ? "–" : "\(Int(l.percent))%",
+                                                extra: l.note, extraRight: false, colour: hue, dim: l.stale)
                     menu.addItem(it)
-                }
-                if s.limitRows.contains(where: { $0.stale }) {
-                    menu.addItem(text("Out of date: open /usage in Claude Code to refresh", size: 11, color: .secondaryLabelColor))
                 }
             }
             menu.addItem(.separator())
