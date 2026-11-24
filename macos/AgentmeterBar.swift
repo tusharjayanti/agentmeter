@@ -432,7 +432,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             head.submenu = made
             menu.addItem(head)
             menu.addItem(.separator())
-            // 2. models
+            // 2. models: the bar is each model's share of this window's tokens
+            menu.addItem(text("Models · share of this \(s.name)'s tokens", size: 11, color: .secondaryLabelColor))
             if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: full)) }
             for r in rows {
                 let it = NSMenuItem(title: r.model, action: full, keyEquivalent: "")

@@ -71,6 +71,7 @@ This week · since Fri 6 Nov · cost at API prices
 #### 2. Models
 
 ```
+Models · share of this week's tokens
 claude-opus-5-5     ██████────   1.23M   $16.60
 gpt-5.3-codex       ███───────    610k    $3.90
 ```
