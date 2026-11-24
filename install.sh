@@ -32,22 +32,22 @@ fi
 [[ " $* " == *" --widget-only "* ]] && set -- --no-job
 [[ " $* " == *" --job-only "* ]] && set -- --no-widget
 FOUND="$(AGENTMETER_NO_WIZARD=1 "$AM" --tools 2>/dev/null | awk '$2 == "found" {printf "%s%s", sep, $1; sep=", "}')"
-echo "logs:   ${FOUND:-none yet (agentmeter picks them up once you use Claude Code, Codex, Gemini CLI or Aider)}"
+echo "logs:   ${FOUND:-none yet (agentmeter picks them up once you use Claude Code, Codex or Gemini CLI)}"
 
 # Setup questions: run now, before the job and widget, so their first numbers use
-# your policy. Skipped when a config exists (re-run any time: agentmeter init),
+# your policy. Skipped when a config exists (re-run any time: agentmeter setup),
 # when not at a terminal, or with --no-init.
 if [ -f "$CFGDIR/config.json" ]; then
-  echo "setup:  using $CFGDIR/config.json (change: agentmeter init)"
+  echo "setup:  using $CFGDIR/config.json (change: agentmeter setup)"
 elif [ -t 0 ] && [ -t 1 ] && [[ " $* " != *" --no-init "* ]]; then
-  "$AM" init || echo "setup:  skipped; defaults apply until you run: agentmeter init"
+  "$AM" setup || echo "setup:  skipped; defaults apply until you run: agentmeter setup"
 else
-  echo "setup:  not interactive; defaults apply until you run: agentmeter init"
+  echo "setup:  not interactive; defaults apply until you run: agentmeter setup"
 fi
 
 # 2. Report job: runs hourly (and at login) and saves each window's report within the hour after
 #    that window ends. Window start and length live in config (period), not here, so changing
-#    them with `agentmeter init` needs no reinstall, and there is no fixed time of day to pick.
+#    them with `agentmeter setup` needs no reinstall, and there is no fixed time of day to pick.
 if [[ " $* " != *" --no-job "* ]]; then
   cat > "$BIN/agentmeter-weekly.sh" <<'EOS'
 #!/bin/bash
@@ -58,7 +58,7 @@ set -euo pipefail
 DATA="$HOME/.local/share/agentmeter"; mkdir -p "$DATA/reports"
 export AGENTMETER_NO_WIZARD=1
 AM_BIN="$(command -v agentmeter || echo "$HOME/.local/bin/agentmeter")"
-OUT="$("$AM_BIN" --save "$DATA/reports")"
+OUT="$("$AM_BIN" reports save --dir "$DATA/reports")"
 case "$OUT" in wrote*) echo "$(date -Iseconds) $OUT" >> "$DATA/run.log";; esac
 EOS
   chmod +x "$BIN/agentmeter-weekly.sh"
@@ -148,4 +148,4 @@ elif [ "$(uname)" = "Linux" ] && [[ " $* " != *" --no-widget "* ]]; then
     echo "widget: for Waybar, Polybar or tmux, see 'Linux status bars' in docs/configuration.md"
   fi
 fi
-echo "done:   run agentmeter, or agentmeter tui for the full-screen view"
+echo "done:   try agentmeter, agentmeter tui, or agentmeter doctor to check everything"

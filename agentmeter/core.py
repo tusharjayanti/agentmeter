@@ -26,7 +26,7 @@ class Turn:
     output: int = 0      # includes reasoning/thinking tokens where the tool counts them separately
     auto: bool = False   # model chosen by the harness (subagent, sidechain), not the user: counted, never judged
     cache_write_1h: int = 0      # the part of cache_write that went to the 1-hour cache (priced higher), when logged
-    cost: float | None = None    # dollars, when the tool logs its own cost (Aider); otherwise priced from prices.py
+    cost: float | None = None    # dollars, when the tool logs its own cost (generic export); otherwise priced from prices.py
 
     @property
     def total(self) -> int:
@@ -40,7 +40,7 @@ class Turn:
 
 @dataclass
 class Session:
-    tool: str            # adapter name: claude-code, codex, gemini, aider, ...
+    tool: str            # adapter name: claude-code, codex, gemini, generic
     id: str
     project: str         # usually basename of cwd
     prompts: list[str] = field(default_factory=list)   # real user prompts, in order

@@ -3,7 +3,7 @@
 Each adapter module exposes:
     NAME: str                      # e.g. "codex"
     DESC: str                      # one line for menus, e.g. "OpenAI's Codex CLI"
-    WHERE: str (optional)          # where logs are looked for, when that isn't one folder (aider)
+    WHERE: str (optional)          # where logs are looked for, when that isn't one folder
     default_root() -> Path         # where the tool keeps its logs
     sessions(root: Path, since: float | None = None) -> Iterator[Session]
                                    # skip files last modified before `since` (epoch seconds)
@@ -14,7 +14,8 @@ import importlib
 import json
 from pathlib import Path
 
-BUILTIN = ["claude_code", "codex", "gemini", "aider", "generic"]
+BUILTIN = ["claude_code", "codex", "gemini", "generic"]
+REMOVED = {"aider"}       # adapters that no longer exist; a config that still lists one skips it
 
 
 def load(name: str):

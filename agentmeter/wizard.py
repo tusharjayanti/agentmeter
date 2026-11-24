@@ -1,4 +1,4 @@
-"""First-run setup: `agentmeter init`. Also runs automatically the first time
+"""Setup questions: `agentmeter setup` (`init` still works). Also runs automatically the first time
 agentmeter is used without a config and stdin is a terminal."""
 from __future__ import annotations
 
@@ -212,7 +212,7 @@ def run(existing: dict | None = None) -> dict:
     # 3. optional: routing ---------------------------------------------
     _header(3, total, "Also check which model did which kind of work? (optional)")
     print(f"  {DIM}Token counts don't need this. It sorts your models into tiers and flags sessions where an expensive")
-    print(f"  model did routine work, or a cheap one did hard work. You can turn it on later with: agentmeter init{RESET}")
+    print(f"  model did routine work, or a cheap one did hard work. You can turn it on later with: agentmeter setup{RESET}")
     routing = confirm("  Set up model routing?", default=bool(cfg.get("routing")))
     cfg["routing"] = routing
     if routing:
@@ -237,7 +237,8 @@ def run(existing: dict | None = None) -> dict:
     if choice == 0:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(cfg, indent=2))
-        print(f"  {GREEN}saved{RESET}. Change it any time with: agentmeter init (or Change setup… in the menu bar)")
+        print(f"  {GREEN}saved{RESET}. Change it any time with agentmeter setup, or Settings in the menu bar.")
+        print(f"  {DIM}Next: agentmeter shows this {per.name}; agentmeter doctor checks everything is found.{RESET}")
     else:
         print("  not saved")
     return cfg

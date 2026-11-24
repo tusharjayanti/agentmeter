@@ -7,7 +7,6 @@ An adapter reads one tool's logs. Adapters are the only code that knows a log fo
 | `claude-code` | `~/.claude/projects/*/*.jsonl` and `<session>/subagents/*.jsonl` | usage from each assistant message; streamed chunks deduplicated by message id; subagent turns counted but not judged; compaction summaries, meta messages and `<synthetic>` error notices skipped |
 | `codex` | `$CODEX_HOME/sessions/**/rollout-*.jsonl` | `token_count` events' `last_token_usage`; cached tokens split out of input; reasoning tokens are already inside output |
 | `gemini` | `~/.gemini/tmp/*/chats/session-*.json` | per-message `tokens`; cached split out of input, thoughts added to output. Project folders are hashes, so the project shows as a hash prefix unless the file names a folder |
-| `aider` | `.aider.chat.history.md` under `$AIDER_REPOS` (colon-separated) or `~/code`, `~/src`, `~/projects`, `~/dev` | parses `> Tokens: 12k sent, 1.2k received`; no cache data |
 | `generic` | `~/.config/agentmeter/sessions/*.jsonl` | your own export, see below |
 
 Only `claude-code` has been checked against real logs. If another adapter misreads yours, a trimmed, anonymised log file as a fixture in `tests/fixtures/` plus a failing test is the most useful bug report.

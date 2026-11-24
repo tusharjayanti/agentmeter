@@ -1,6 +1,6 @@
 # Configuration
 
-`~/.config/agentmeter/config.json`, written by `agentmeter init` and editable by hand. `AGENTMETER_CONFIG` points somewhere else. [`examples/config.json`](../examples/config.json) shows every default.
+`~/.config/agentmeter/config.json`, written by `agentmeter setup` and editable by hand. `AGENTMETER_CONFIG` points somewhere else. [`examples/config.json`](../examples/config.json) shows every default.
 
 ## Windows: `period`
 
@@ -18,11 +18,11 @@ Windows are named by their start date. Starting on a Friday with `1w` gives Frid
 - `tools`: which tools to read, e.g. `["claude-code", "codex"]`. Empty means every tool whose logs exist.
 - `roots`: where a tool keeps its logs, if not the usual place, e.g. `{"codex": "/Volumes/work/.codex/sessions"}`.
 
-`agentmeter --tools` lists each tool and where it looks.
+`agentmeter doctor` lists each tool, whether it has logs, and where it looks.
 
 ## Cost: `prices`
 
-Every view shows what the tokens would cost at the vendors' API list prices: Anthropic for Claude Code, OpenAI for Codex, Google for Gemini CLI. Aider logs its own cost, which is used as it is. Models run locally through Ollama or LM Studio cost $0. The bundled prices are dated (`agentmeter/prices.py`, `AS_OF`) and copied from the vendors' pricing pages.
+Every view shows what the tokens would cost at the vendors' API list prices: Anthropic for Claude Code, OpenAI for Codex, Google for Gemini CLI. A cost your own export logs (the generic format's `cost`) is used as it is. Models run locally through Ollama or LM Studio cost $0. The bundled prices are dated (`agentmeter/prices.py`, `AS_OF`) and copied from the vendors' pricing pages.
 
 This is an API-equivalent figure. On a subscription (Claude Pro or Max, ChatGPT Plus or Pro, a Google login) it is not your bill. It shows what the same work would cost on pay-as-you-go, which is useful for comparing weeks and models.
 
@@ -66,7 +66,7 @@ Restart the app after changing these: **Quit agentmeter** from its menu, then `l
 
 ## Model routing: `routing`, `tiers`, `policy`, `categories`
 
-Off by default. With `"routing": true`, agentmeter also sorts models into tiers and flags sessions where a model did work outside its tier: an expensive model fixing typos, or a cheap one designing a system. `agentmeter init` sets this up with menus.
+Off by default. With `"routing": true`, agentmeter also sorts models into tiers and flags sessions where a model did work outside its tier: an expensive model fixing typos, or a cheap one designing a system. `agentmeter setup` sets this up with menus.
 
 ```json
 "routing": true,
@@ -80,30 +80,45 @@ Off by default. With `"routing": true`, agentmeter also sorts models into tiers 
 - `categories`: ordered `[name, regex]` pairs, matched against a session's first five prompts (`prompts_for_classification`). Each category scores one point per distinct match in each prompt; earlier categories win ties, so keep narrow patterns first.
 - On-policy share: tokens in sessions whose work fits their model's tier, divided by all judged tokens. Subagent turns, unclassified sessions and models without a tier aren't judged.
 
-The classification is keyword-based on purpose. Treat flagged sessions as a list to look at, not a verdict. `agentmeter check` shows the largest unclassified sessions, to help you tune the patterns.
+The classification is keyword-based on purpose. Treat flagged sessions as a list to look at, not a verdict. `agentmeter doctor` shows the largest unclassified sessions, to help you tune the patterns.
 
 ## Command line
 
+Five commands:
+
 ```sh
-agentmeter                        # last 4 windows in one table, then the latest per model; --periods N for more
-agentmeter --sessions             # also list the largest sessions per model (--prompts N for how many)
-agentmeter tui                    # full-screen view: switch windows and views with the keyboard
-agentmeter --period last          # this, last, any date in the window (2026-10-22), or an ISO week (2026-W43)
-agentmeter --today                # since local midnight
-agentmeter --since 6h             # or 3d, 2w, a date, an ISO datetime
-agentmeter --from 2026-10-01 --to 2026-10-15   # a plain --to date includes that whole day
-agentmeter --tool codex           # only this tool; repeatable
-agentmeter --root codex=/path     # read a tool's logs from somewhere else
-agentmeter --status               # TOKENS 1.13M
-agentmeter --status-json          # {"text", "tooltip", "class"}, text in Pango markup, for Waybar
-agentmeter --json                 # {"periods": [...], "sessions": [...], "config": {...}}
-agentmeter --save [DIR]           # save reports for finished windows that have none yet; --force rewrites
-agentmeter --tools                # which tools have logs, and where agentmeter looks
-agentmeter init                   # setup questions
-agentmeter check                  # validate the config; show windows, next report date, models seen
+agentmeter                 # this window: tokens, cost, models, plan limits (after a table of the last 4)
+agentmeter tui             # full-screen view: flip through windows, today, the last 5 hours, reports
+agentmeter reports         # saved reports; `reports last` or `reports DATE` prints one
+agentmeter setup           # the setup questions: tools, window, routing
+agentmeter doctor          # is it working: config, tools found, windows, reports, limits, background parts
 ```
 
-`--weeks` / `--week` are aliases of `--periods` / `--period`. Each window is compared with the one before it, which is loaded for that purpose even when it isn't shown. Tables fit in 80 columns.
+Which time to show (with plain `agentmeter`):
+
+```sh
+agentmeter --today                             # since local midnight
+agentmeter --since 6h                          # or 3d, 2w, a date, an ISO datetime
+agentmeter --from 2026-10-01 --to 2026-10-15   # a plain --to date includes that whole day
+agentmeter --period last                       # one window: this, last, any date in it, or an ISO week (2026-W43)
+agentmeter --periods 8                         # the last 8 windows
+agentmeter --detail                            # also the largest sessions per model (--top N), and what tokens and cost are made of
+```
+
+For scripts and status bars:
+
+```sh
+agentmeter --json                  # {"periods": [...], "sessions": [...], "config": {...}, "limits": [...]}
+agentmeter --status                # TOKENS 1.13M
+agentmeter --status-json           # {"text", "tooltip", "class"}, text in Pango markup, for Waybar
+agentmeter reports save [--force]  # write reports for finished windows that have none yet (the job runs this hourly)
+agentmeter --tool codex            # only this tool; repeatable
+agentmeter --root codex=/path      # read a tool's logs from somewhere else
+```
+
+Each window is compared with the one before it, which is loaded for that purpose even when it isn't shown. Output fits in 80 columns.
+
+Older spellings still work but aren't listed in `--help`: `init` (setup), `check` (doctor), `--tools`, `--weeks` / `--week` (`--periods` / `--period`), `--sessions` (`--detail`), `--prompts` (`--top`), `--save [DIR]` / `--force` (`reports save`).
 
 ### Full-screen view: `agentmeter tui`
 
@@ -115,7 +130,7 @@ Stays open and reloads the logs every minute. It uses curses from Python's stand
 
 It needs a terminal at least 60 columns by 16 rows. For scripts and pipes, use `agentmeter` or `--json`.
 
-Environment: `AGENTMETER_CONFIG` (config path), `AGENTMETER_NO_WIZARD=1` (never start setup on a first run), `NO_COLOR` / `FORCE_COLOR` (colours are on only in a terminal by default), `AGENTMETER_REPORTS` (the menu bar app reads reports from this folder instead).
+Environment: `AGENTMETER_CONFIG` (config path), `AGENTMETER_NO_WIZARD=1` (never start setup on a first run), `NO_COLOR` / `FORCE_COLOR` (colours are on only in a terminal by default), `AGENTMETER_REPORTS` (read and write reports in this folder instead).
 
 ## Reports
 
@@ -126,7 +141,7 @@ Saved in `~/.local/share/agentmeter/reports/`, named by window start date:
 
 Cost is frozen with the report, at the prices of the day it was saved. Reports saved before cost was added show `–`.
 
-The previous window's figures come from its saved report when there is one, so they don't shrink as old logs are deleted. A report is written once; `--save --force` rewrites it. To keep Claude Code's raw logs longer, set `"cleanupPeriodDays": 365` in `~/.claude/settings.json`.
+The previous window's figures come from its saved report when there is one, so they don't shrink as old logs are deleted. A report is written once; `agentmeter reports save --force` rewrites it. To keep Claude Code's raw logs longer, set `"cleanupPeriodDays": 365` in `~/.claude/settings.json`.
 
 Reports include the first line of each session's first prompt. Check them before sharing.
 

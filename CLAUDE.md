@@ -1,6 +1,6 @@
 # agentmeter
 
-Reads the local session logs of agentic coding tools (Claude Code, Codex CLI, Gemini CLI, Aider, or a generic JSONL export), and reports tokens per model per measurement window (any start date, any length), what kind of work each model did, and which sessions were **off-policy**: a model doing work its tier isn't meant for. It ships as a CLI, a status bar widget, and a report job. macOS and Linux. It is meant to be open source and usable by anyone, so personal choices are config, not code.
+Reads the local session logs of agentic coding tools (Claude Code, Codex CLI, Gemini CLI, or a generic JSONL export), and reports tokens per model per measurement window (any start date, any length), what kind of work each model did, and which sessions were **off-policy**: a model doing work its tier isn't meant for. It ships as a CLI, a status bar widget, and a report job. macOS and Linux. It is meant to be open source and usable by anyone, so personal choices are config, not code.
 
 The product idea in one line: raw token count is a cost number; the useful question is whether the *routing* is right. Keep every feature in service of that.
 
@@ -10,12 +10,12 @@ The product idea in one line: raw token count is a cost number; the useful quest
 agentmeter/
   core.py        Session/Turn model, DEFAULT_CONFIG, validate(), Policy (tier + classify + on_policy), Periods (windows), aggregate()
   adapters/      one file per tool: NAME, default_root(), sessions(root, since=None) -> Iterator[Session]
-  cli.py         argparse entry point; `init` and `check` subcommands; --status / --status-json / --save / --json
+  cli.py         argparse entry point; commands `tui`, `reports`, `setup`, `doctor`; --status / --status-json / --json
   report.py      reports: <start>.md + <start>.json, written once per finished window, never recomputed
   prices.py      bundled API list prices (dated AS_OF) and per-turn cost and split; config `prices` adds or overrides
   limits.py      plan limits (5-hour, weekly) from the tools' own on-disk copies: ~/.claude.json, Codex session logs
   tui.py         `agentmeter tui`: full-screen curses view; frame() returns plain lines so tests can check it
-  wizard.py      `agentmeter init`: tools → models → tiers → policy → windows (begin date + length) → confirm
+  wizard.py      `agentmeter setup`: tools → models → tiers → policy → windows (begin date + length) → confirm
   prompt.py      stdlib-only TUI prompts (select / multiselect / text / confirm), numbered fallback without a TTY
 macos/
   AgentmeterBar.swift        native menu bar app (NSStatusItem); install.sh builds it with swiftc, launchd starts it at login
@@ -37,6 +37,7 @@ User data: config `~/.config/agentmeter/config.json`; reports `~/.local/share/ag
 python3 -m pytest -q tests                       # must pass before any commit
 python3 -m agentmeter --periods 4                # run from the repo without installing
 python3 -m agentmeter --today                    # any ad hoc range: --since 6h, --from DATE --to DATE
+python3 -m agentmeter doctor                     # config, tools found, windows, reports, limits, background parts
 python3 -m zipapp . -m agentmeter.cli:main -o ~/.local/bin/agentmeter -p "/usr/bin/env python3"   # rebuild the installed CLI
 ./install.sh [--no-init] [--no-job] [--no-widget] [--widget-only|--job-only]
 swiftc -O -swift-version 5 macos/AgentmeterBar.swift -o ~/.local/bin/agentmeter-bar && launchctl kickstart -k gui/$(id -u)/io.github.agentmeter.bar   # rebuild + restart the menu bar app
@@ -65,12 +66,13 @@ After changing the widget or CLI, verify on the real menu bar, not only in tests
 - **The menu bar app and the Linux widget get all data from `agentmeter --json`** (`periods`, `config.this_period`, `config.period.name`, `config.labels`), so neither knows log formats or window rules.
 - **The menu bar label shows tokens used this window, nothing else** (cost is inside the menu, not in the bar). No on-policy % or anything goal-like: the owner tracks usage, not a target. Default look is a two-line label (small `TOKENS` caption over `1.13M`), matching compact items like Stats' `GPU / 10%`, and narrow enough for a notched MacBook. `widget.style: "icon"` switches to icon + number.
 - **No icon by default; the caption is the mark.** The fork mark read as a trident and rising bars as signal strength. The `icon` style uses a bar chart on a baseline (drawn in code as a template image) or any SF Symbol.
-- **Setup questions run inside `install.sh`** when there's a terminal. Otherwise the menu bar app opens `agentmeter init` in Terminal (via a `.command` file, so no Automation prompt) on its first launch without a config, once (marker `~/.local/share/agentmeter/.setup-offered`), and shows a **Set up** menu item until a config exists. Setup asks tools → windows → optional routing; defaults work until then.
+- **Five commands, one way in.** The CLI is `agentmeter` (this window), `tui`, `reports`, `setup`, `doctor`; time ranges and output formats are flags, grouped in `--help`. Older spellings (`init`, `check`, `--tools`, `--weeks`, `--week`, `--sessions`, `--prompts`, `--save`) stay as hidden aliases, because installed jobs and people's habits use them. The menu is a glance (this window, models, limits, last window); every data row opens `agentmeter tui`, and actions are Open full view, Reports ›, Settings ›, Refresh, Quit. Menu labels say what you change, never the command behind it. This came from the owner finding the old menu and commands "haphazard" as a new user.
+- **Setup questions run inside `install.sh`** when there's a terminal. Otherwise the menu bar app opens `agentmeter setup` in Terminal (via a `.command` file, so no Automation prompt) on its first launch without a config, once (marker `~/.local/share/agentmeter/.setup-offered`), and shows a **Set up agentmeter…** item until a config exists. Setup asks tools → windows → optional routing; defaults work until then.
 - **The macOS menu bar app is native Swift, built on the user's machine.** SwiftBar was dropped (an extra app to install). `swiftc` from the Xcode Command Line Tools compiles one file at install time, so there's no signing, no cask and no runtime dependency; the CLI stays pure Python and the app only reads `agentmeter --json`. A launchd agent (`io.github.agentmeter.bar`, RunAtLoad, restart only on crash) starts it at login. Linux bars get the one-line form of the same look via Pango markup (`--status-json`, Argos plugin) and start with the session.
 - **Reports are local files, written once.** `<start>.md` to read, `<start>.json` for scripts. A finished window is never recomputed: Claude Code prunes transcripts after 30 days, so a recompute would undercount. Empty windows aren't written (can't tell idle from pruned).
 - **Windows are user config (`period: {start, length}`), not a schedule.** `start` is the date collection begins and anchors every window; `length` is `Nd`/`Nw`/`Nm` (months clamp at month end). Windows are keyed by start date (`2026-11-06`). Reports are saved only for windows from `start` on. `start: null` means Monday weeks with no begin date; legacy `week_start` is honoured then. The report job runs hourly and at login, and `--save` writes only newly finished windows (looking back ~35 days), so changing the windows needs no rescheduling and there is no time of day to configure. `--weeks`/`--week` are kept as aliases of `--periods`/`--period`.
 - **Ad hoc ranges are separate from windows.** `--today`, `--since 6h|3d|DATE`, `--from … --to …` build a one-off window for looking at any time; they can't be saved as reports. JSON rows carry `period` (window start), and `--json` returns `{periods, sessions, config}`.
-- **Cost is API-equivalent, from a bundled price list.** Prices are copied by hand from the vendors' pricing pages (Anthropic via the claude-api skill, OpenAI, Google) with an `AS_OF` date, never from memory and never downloaded. Model ids match exactly after dropping date suffixes and platform prefixes; a model with no listed price shows `–`, not a guess. A cost the tool logs itself (Aider) wins; local models (Ollama, LM Studio) are $0. Always label it as API prices, not a bill: most users are on subscriptions.
+- **Cost is API-equivalent, from a bundled price list.** Prices are copied by hand from the vendors' pricing pages (Anthropic via the claude-api skill, OpenAI, Google) with an `AS_OF` date, never from memory and never downloaded. Model ids match exactly after dropping date suffixes and platform prefixes; a model with no listed price shows `–`, not a guess. A cost the tool logs itself (generic export) wins; local models (Ollama, LM Studio) are $0. Always label it as API prices, not a bill: most users are on subscriptions.
 - **Plan limits come only from what the tools already keep on disk** (`cachedUsageUtilization` in `~/.claude.json`, Codex `token_count.rate_limits`), labelled with their age. Calling Anthropic's or OpenAI's usage endpoints was rejected: it would break "no network", need the login token (a Keychain prompt) and rely on undocumented APIs. Read only the needed keys; any format surprise means no limits, never an error.
 - **Compare costs with Claude Code's `/usage`, not its Stats tab.** Stats (`stats-cache.json`) sums every transcript line, and Claude Code repeats a reply's usage on each line, so it runs ~2.5× high. agentmeter counts each API call once and matches `/usage` within a few percent (unlogged background calls).
 - **Terminal output is tables that fit 80 columns**, after Linux feedback that the old output was hard to read. Session details are behind `--sessions`. The full-screen view (`agentmeter tui`, chosen over an OpenTUI mock-up) is curses from the standard library: OpenTUI would need Bun and a TypeScript codebase.
@@ -81,7 +83,6 @@ After changing the widget or CLI, verify on the real menu bar, not only in tests
 ## Known gaps
 
 - Codex CLI and Gemini CLI adapters are written against documented formats and tested only on fixtures, never on a real machine's logs. Verify with a real file before claiming support.
-- Aider logs carry no cache data; its cache columns are always 0.
 - Older Codex models (`gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-max`, `gpt-5.2-codex`) aren't on OpenAI's pricing page, so they have no bundled price; users add one under `prices`.
 - Claude Code logs seen so far don't say which cache writes went to the 1-hour cache, so all are priced at the 5-minute rate (1.25×); a 1-hour write costs 2×, so cost may be understated for sessions that use it.
 - Gemini project folders are hashes, so the project column is a hash prefix unless the file names a cwd.

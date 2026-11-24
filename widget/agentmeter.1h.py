@@ -74,21 +74,9 @@ fresh = sum(r["fresh"] for r in rows)
 prev = sum(r["fresh"] for r in rows_all if r["period"] == last_p)
 caption = str((json.loads(CFG.read_text()).get("widget", {}) if CFG.exists() else {}).get("caption", "TOKENS")).upper()
 
-print(f"<span size='x-small' weight='medium'>{caption}</span> {fmt(fresh)} | useMarkup=true")
-print("---")
-print(f"This {name} (since {day(this_p)}) | {GRAY} size=10")
-print(f"{fmt(fresh)} tokens · {money(cost(rows))} · {sum(r['sessions'] for r in rows)} session{'s' * (sum(r['sessions'] for r in rows) != 1)} | size=13")
-print(f"{fmt(sum(r['total'] for r in rows))} including cache reads · cost at API prices | {GRAY} size=10")
-if meta.get("cost_split", {}).get(this_p):
-    print(f"cost: {meta['cost_split'][this_p]} | {GRAY} size=10")
-for line in meta.get("limit_lines") or []:
-    print(f"{line} | {GRAY} size=10")
-print("---")
-if not rows:
-    print(f"No sessions yet this {name} | {GRAY}")
-for r in rows:
-    print(f"{r['model'][:26]:<26} {fmt(r['fresh']):>7} | {MONO} trim=false")
-print("---")
+FULL = f"bash={BIN} param1=tui terminal=true"          # every data row opens the full-screen view
+
+
 def change_label(cur, prev):
     if not prev:
         return "new" if cur else "–"
@@ -99,16 +87,45 @@ def change_label(cur, prev):
     return f"<span foreground='{'#2ea44f' if p > 0 else '#d73a49'}'>{'↑' if p > 0 else '↓'}{abs(p)}%</span>"
 
 
+# The same order as the macOS menu: this window, models, plan limits, last window, then actions.
+print(f"<span size='x-small' weight='medium'>{caption}</span> {fmt(fresh)} | useMarkup=true")
+print("---")
+n = sum(r["sessions"] for r in rows)
+print(f"This {name} · since {day(this_p)} · cost at API prices | {GRAY} size=10 {FULL}")
+print(f"{fmt(fresh)} tokens · {money(cost(rows))} · {n} session{'s' * (n != 1)} | size=13")
+if meta.get("cost_split", {}).get(this_p):
+    print(f"--What the cost is made of: {meta['cost_split'][this_p]} | {GRAY} size=10")
+print(f"--{fmt(sum(r['total'] for r in rows))} tokens including cache reads | {GRAY} size=10")
+print("---")
+if not rows:
+    print(f"No sessions yet this {name} | {GRAY} {FULL}")
+for r in rows:
+    print(f"{r['model'][:26]:<26} {fmt(r['fresh']):>7} {money(r.get('cost')):>8} | {MONO} trim=false {FULL}")
+if meta.get("limit_lines"):
+    print("---")
+    for line in meta["limit_lines"]:
+        print(f"{line} | {GRAY} size=10")
+print("---")
 change = f"   this {name} so far {change_label(fresh, prev)}" if prev else ""
 prev_cost = cost([r for r in rows_all if r["period"] == last_p])
-print(f"Last {name}: {fmt(prev)} · {money(prev_cost)}{change} | {GRAY} size=11 useMarkup=true")
+print(f"Last {name}  {fmt(prev)} · {money(prev_cost)}{change} | useMarkup=true")
+for r in sorted((r for r in rows_all if r["period"] == last_p), key=lambda r: -r["fresh"]):
+    print(f"--{r['model'][:26]:<26} {fmt(r['fresh']):>7} {money(r.get('cost')):>8} | {MONO} trim=false")
 print("---")
-reports = sorted(REPORTS.glob("????-??-??.md"))
-if reports:
-    print(f"Open latest report ({day(reports[-1].stem)}) | bash={OPEN} param1={reports[-1]} terminal=false")
-    print(f"Open reports folder | bash={OPEN} param1={REPORTS} terminal=false")
+print(f"Open full view… | {FULL}")
+print("Reports")
+reports = meta.get("reports") or []
+if not reports:
+    print(f"--None yet: one is saved when each {name} ends | {GRAY}")
+for r in reports:
+    print(f"--{r['label']}   {fmt(r['fresh'])} · {money(r.get('cost'))} | bash={OPEN} param1={r['path']} terminal=false")
+print(f"--Open reports folder | bash={OPEN} param1={meta.get('reports_dir') or REPORTS} terminal=false")
+print("Settings")
 if CFG.exists():
-    print(f"Edit settings | bash={OPEN} param1={CFG} terminal=false")
+    print(f"--Tools, window and routing… | bash={BIN} param1=setup terminal=true")
+    print(f"--Open config file | bash={OPEN} param1={CFG} terminal=false")
 else:
-    print(f"Set up (agentmeter init) | bash={BIN} param1=init terminal=true")
-print("Refresh now | refresh=true")
+    print(f"--Set up agentmeter… | bash={BIN} param1=setup terminal=true")
+print(f"--Check setup… | bash={BIN} param1=doctor terminal=true")
+print("---")
+print("Refresh | refresh=true")

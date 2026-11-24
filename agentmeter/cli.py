@@ -1,14 +1,13 @@
-"""agentmeter CLI.
+"""agentmeter CLI: five commands, everything else is a range or an output format.
 
-  agentmeter                      # last 4 windows (config `period`), every tool whose logs exist
-  agentmeter --tool codex --periods 8
-  agentmeter --period last         # or this, or any date in the window: --period 2026-10-22
-  agentmeter --today               # any time: since midnight; or --since 6h / 3d / 2026-10-01
-  agentmeter --from 2026-10-01 --to 2026-10-15
-  agentmeter --json
-  agentmeter --save               # keep <start>.md + <start>.json for each finished window
-  agentmeter --tools              # which adapters found logs
-  agentmeter check                # validate config; show how recent models and sessions resolve
+  agentmeter                       this window (a week by default): tokens, cost, models, plan limits
+  agentmeter tui                   full-screen view
+  agentmeter reports [last|DATE]   saved reports; `reports save` writes newly finished windows
+  agentmeter setup                 the setup questions (tools, window, routing)
+  agentmeter doctor                is it working: config, tools, windows, reports, limits
+
+Ranges: --today, --since 6h, --from DATE --to DATE, --period last, --periods 8.
+Older spellings (init, check, --tools, --weeks, --week, --sessions, --prompts, --save) still work, unlisted.
 """
 from __future__ import annotations
 
@@ -56,7 +55,7 @@ def pct(p):
 
 
 def collect(tool_names, roots, since_ts=None, quiet=False):
-    mods = [adapters.load(t) for t in tool_names] if tool_names else adapters.available()
+    mods = [adapters.load(t) for t in tool_names if t not in adapters.REMOVED] if tool_names else adapters.available()
     for mod in mods:
         root = Path(roots.get(mod.NAME)).expanduser() if roots.get(mod.NAME) else mod.default_root()
         if not root.exists():
@@ -88,65 +87,195 @@ def unmapped_note(weekly) -> str:
     if not um:
         return ""
     names = ", ".join(sorted(um, key=lambda m: -um[m])[:4])
-    return f"{fmt(sum(um.values()))} tokens on models with no tier ({names}): add them with `agentmeter init` or to 'tiers'"
+    return f"{fmt(sum(um.values()))} tokens on models with no tier ({names}): add them with `agentmeter setup` or to 'tiers'"
 
 
 def load_policy(cfg) -> Policy:
     errors, _ = validate(cfg)
     if errors:
-        sys.exit(f"bad config {config_path()}:\n  " + "\n  ".join(errors) + "\nrun `agentmeter check` for details")
+        sys.exit(f"bad config {config_path()}:\n  " + "\n  ".join(errors) + "\nrun `agentmeter doctor` for details")
     return Policy(cfg)
 
 
-def check(argv):
-    ap = argparse.ArgumentParser(prog="agentmeter check",
-                                 description="Validate the config and show how recent models and sessions resolve.")
-    ap.add_argument("--periods", "--weeks", type=int, default=4, dest="periods")
+def tilde(p) -> str:
+    p, home = str(p), str(Path.home())
+    return "~" + p[len(home):] if p == home or p.startswith(home + os.sep) else p
+
+
+def reports_dir(d=None) -> Path:
+    return Path(d or os.environ.get("AGENTMETER_REPORTS") or report.DEFAULT_DIR).expanduser()
+
+
+def tool_rows(roots=None) -> list[list[str]]:
+    """[name, found/absent, where it looks, description] for every built-in adapter."""
+    roots, out = roots or {}, []
+    for n in adapters.BUILTIN:
+        mod = adapters.load(n)
+        r = Path(roots[mod.NAME]).expanduser() if roots.get(mod.NAME) else mod.default_root()
+        out.append([mod.NAME, "found" if r.exists() else "absent", tilde(adapters.where(mod, r if r.exists() else None)), mod.DESC])
+    return out
+
+
+def saved_reports(d: Path) -> list[dict]:
+    """The summary of each saved report, oldest first; unreadable files are skipped."""
+    out = []
+    for f in sorted(d.glob("*.json")) if d.is_dir() else []:
+        try:
+            j = json.loads(f.read_text())
+            out.append({"key": j["start"], "end": j["end"], "fresh": j["summary"]["fresh"], "cost": j["summary"].get("cost"),
+                        "prev": (j.get("previous") or {}).get("fresh"), "md": f.with_suffix(".md")})
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out
+
+
+def reports_cmd(argv):
+    ap = argparse.ArgumentParser(prog="agentmeter reports",
+                                 description="Saved reports: one per finished window, written once and kept.",
+                                 epilog="agentmeter reports         list them\n"
+                                        "agentmeter reports last    print the latest one\n"
+                                        "agentmeter reports DATE    print the one whose window holds that date\n"
+                                        "agentmeter reports save    write any finished window that has no report yet\n"
+                                        "                           (the background job runs this every hour)",
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("which", nargs="?", metavar="last|DATE|save", help="leave out to list them")
+    ap.add_argument("--dir", help=f"reports folder (default {report.DEFAULT_DIR})")
+    ap.add_argument("--force", action="store_true", help="with save: rewrite reports that already exist")
     args = ap.parse_args(argv)
+    d = reports_dir(args.dir)
+    if args.which == "save":
+        return main(["--save", str(d)] + (["--force"] if args.force else []))
+    saved = saved_reports(d)
+    if args.which:
+        if args.which == "last":
+            pick = saved[-1:]
+        else:
+            try:
+                day = dt.date.fromisoformat(args.which).isoformat()
+            except ValueError:
+                ap.error(f"expected last, a date (YYYY-MM-DD) or save, got {args.which!r}")
+            pick = [r for r in saved if r["key"] <= day <= r["end"]]
+        if not pick or not pick[-1]["md"].exists():
+            sys.exit(f"no saved report for that window in {tilde(d)}")
+        print(pick[-1]["md"].read_text(), end="")
+        return
+    if not saved:
+        per = Periods.from_config(load_config())
+        cur = per.current()
+        print(f"No reports yet in {tilde(d)}.\nThe first is saved on {per.end(cur) + dt.timedelta(days=1):%a %-d %b}, "
+              f"when this {per.name} ({per.label(cur)}) ends.")
+        return
+    st = Style(use_color())
+    rows = [[span_label(dt.date.fromisoformat(r["key"]), dt.date.fromisoformat(r["end"])),
+             f"{st.b}{fmt(r['fresh'])}{st.reset}", money(r["cost"]),
+             change(st, r["fresh"], r["prev"]) if r["prev"] else "–"] for r in saved]
+    print(table(st, ["window", "tokens", "cost", "vs prev"], rows, "<>>>"))
+    print(f"{st.dim}in {tilde(d)}: a .md to read and a .json for scripts each\n"
+          f"agentmeter reports last prints the latest; agentmeter reports DATE any other{st.reset}")
+
+
+def doctor(argv):
+    ap = argparse.ArgumentParser(prog="agentmeter doctor",
+                                 description="Is it working: config, tools found, windows, reports, plan limits, background parts. "
+                                             "With routing on, also how models and sessions are classified.")
+    ap.add_argument("--periods", type=int, default=4, metavar="N", help="with routing on: windows of sessions to look at (default 4)")
+    ap.add_argument("--weeks", type=int, dest="periods", help=argparse.SUPPRESS)
+    args = ap.parse_args(argv)
+    st = Style(use_color())
+    head = lambda s: f"\n{st.b}{s}{st.reset}"
     cfg, p = load_config(), config_path()
-    print(f"config: {p}" + ("" if p.exists() else "  (not found: built-in defaults apply; create one with `agentmeter init`)"))
+    print(head("config"))
+    print(f"  {tilde(p)}" + ("" if p.exists() else "  not found: defaults apply (weeks from Monday, every tool). "
+                                                   "Choose yours with `agentmeter setup`"))
     errors, warnings = validate(cfg)
     for m in errors:
-        print(f"  error:   {m}")
+        print(f"  {st.red}error{st.reset}:   {m}")
     for m in warnings:
-        print(f"  warning: {m}")
+        print(f"  {st.yellow}warning{st.reset}: {m}")
     if errors:
         sys.exit(1)
-    if not warnings:
-        print("  ok")
-    policy = Policy(cfg)
+    if p.exists() and not warnings:
+        print(f"  {st.green}ok{st.reset}")
+
+    print(head("tools"))
+    chosen = cfg.get("tools") or []
+    for name, state, where, _ in tool_rows(cfg.get("roots", {})):
+        read = state == "found" and (not chosen or name in chosen)
+        label = "reading" if read else "skipped" if state == "found" else "no logs"
+        print(f"  {name:<12} {st.green if read else st.dim}{label:<8}{st.reset} {st.dim}{clip(where, 56)}{st.reset}")
+    print(f"  {st.dim}" + ("tools come from your setup" if chosen else "every tool with logs is read") + st.reset)
+
     per = Periods.from_config(cfg)
     cur = per.current()
-    print(f"windows: {per.describe()}")
-    print(f"  current: {per.label(cur)} · its report is saved on {per.end(cur) + dt.timedelta(days=1):%a %-d %b %Y}")
+    print(head("windows"))
+    print(f"  {per.describe()}")
+    print(f"  now: {per.label(cur)} · its report is saved on {per.end(cur) + dt.timedelta(days=1):%a %-d %b}")
     if per.begins and per.begins > dt.date.today():
         print(f"  collection begins {per.begins:%a %-d %b %Y}: nothing is saved before then")
-    wanted = per.back(args.periods)
-    weekly, sessions = aggregate(collect(cfg.get("tools") or None, cfg.get("roots", {}), since(wanted)), policy,
-                                 by_period(per, wanted), Prices(cfg.get("prices")))
 
+    d = reports_dir()
+    saved = saved_reports(d)
+    print(head("reports"))
+    if saved:
+        last = saved[-1]
+        print(f"  {len(saved)} saved, latest {span_label(dt.date.fromisoformat(last['key']), dt.date.fromisoformat(last['end']))}")
+        print(f"  {st.dim}{tilde(d)}{st.reset}")
+    else:
+        print(f"  none yet in {tilde(d)}")
+
+    from .limits import age
+    print(head("plan limits"))
+    lims = all_limits()
+    if not lims:
+        print(f"  {st.dim}none found (API-key users have none; Claude Code keeps its copy in ~/.claude.json){st.reset}")
+    for tool in dict.fromkeys(x["tool"] for x in lims):
+        mine = [x for x in lims if x["tool"] == tool]
+        stale = ", out of date" + (": open /usage in Claude Code" if tool == "Claude" else "") if any(x["stale"] for x in mine) else ""
+        print(f"  {tool}: {age(mine[0])}{stale}")
+
+    print(head("background"))
+    home = Path.home()
+    if sys.platform == "darwin":
+        parts = [("report job", home / "Library/LaunchAgents/io.github.agentmeter.weekly.plist"),
+                 ("menu bar app", home / "Library/LaunchAgents/io.github.agentmeter.bar.plist")]
+    else:
+        parts = [("report job", home / ".config/systemd/user/agentmeter-weekly.timer")]
+    for name, f in parts:
+        print(f"  {name:<13}" + (f"{st.green}installed{st.reset}" if f.exists() else
+                                  f"{st.yellow}not installed{st.reset} {st.dim}(run ./install.sh from the repo){st.reset}"))
+
+    print(head("routing"))
+    if not cfg.get("routing"):
+        print(f"  off: tokens only. `agentmeter setup` can turn it on, to flag sessions\n"
+              f"  where a model did work its tier isn't meant for.")
+        return
+    policy = Policy(cfg)
+    wanted = per.back(args.periods)
+    weekly, sessions = aggregate(collect(cfg.get("tools") or None, cfg.get("roots", {}), since(wanted), quiet=True), policy,
+                                 by_period(per, wanted), Prices(cfg.get("prices")))
     models = defaultdict(int)
     for r in weekly:
-        models[r["model"]] += r["total"]
-    print(f"\nmodels seen in the last {args.periods} {per.name}s → tier → work it is meant for")
+        models[r["model"]] += r["fresh"]
+    print(f"  on, as of the last {args.periods} {per.name}s")
+    print(f"  {st.dim}model → tier: work it is meant for{st.reset}")
     for m in sorted(models, key=lambda m: -models[m]):
         t = policy.tier(m)
         meant = ", ".join(cfg["policy"].get(t, [])) or ("never judged: no tier matches" if t == "unknown" else "(no policy)")
-        print(f"  {m[:28]:<28} {fmt(models[m]):>8}  {t:<9} {meant}")
-
+        print(f"    {clip(m, 22):<22} {fmt(models[m]):>7}  {t}")
+        print(f"      {st.dim}{clip(meant, 72)}{st.reset}")
     judged = [s for s in sessions if not s["auto"]]
     cats = defaultdict(lambda: [0, 0])
     for s in judged:
         cats[s["category"]][0] += 1
         cats[s["category"]][1] += s["tokens"]
-    print("\nwork categories (session slices, tokens)")
+    print("  work categories (sessions, tokens)")
     for c, (n, tok) in sorted(cats.items(), key=lambda x: -x[1][1]):
-        print(f"  {c:<13}{n:>4}  {fmt(tok):>8}")
+        print(f"    {c:<13}{n:>4}  {fmt(tok):>8}")
     un = sorted((s for s in judged if s["category"] == "unclassified"), key=lambda s: -s["tokens"])
     if un:
-        print("\nlargest unclassified sessions (no category regex matched; tune 'categories' to catch them):")
+        print(f"  largest unclassified sessions {st.dim}(tune 'categories' in config to catch them){st.reset}")
         for s in un[:5]:
-            print(f"  {fmt(s['tokens']):>8}  {s['project']}: {s['prompt'][:90]}")
+            print(f"    {fmt(s['tokens']):>7}  {clip(s['project'], 14)}: {clip(s['prompt'], 52)}")
 
 
 # ---------------------------------------------------------------- text output
@@ -207,8 +336,23 @@ def table(st, headers, rows, align):
     return "\n".join(out)
 
 
+def wrap(line: str, width: int = 80, sep: str = " · ") -> list[str]:
+    """Break a ' · '-joined line at its separators so each piece fits `width` (ANSI codes don't count).
+    Continuation lines are indented under the text after a leading 'label: '."""
+    pieces = line.split(sep)
+    head = visible(pieces[0].split(": ", 1)[0]) + 2 if ": " in pieces[0] else 0
+    out = [pieces[0]]
+    for x in pieces[1:]:
+        if visible(out[-1]) + len(sep) + visible(x) <= width:
+            out[-1] += sep + x
+        else:
+            out.append(" " * head + x)
+    return out
+
+
 def limit_lines(st, limits) -> list[str]:
-    """'Claude limits: 5-hour 4% resets 20:29 · week 1% resets Tue 17 Nov · as of 16:00', one line per tool."""
+    """'Claude limits: 5-hour 4% resets 20:29 · week 1% resets Tue 17 Nov · as of 16:00', one line per tool.
+    A reading whose reset time has passed is out of date: its numbers are dimmed and that is said once."""
     from .limits import age, short
     out = []
     for tool in dict.fromkeys(x["tool"] for x in limits):
@@ -217,10 +361,13 @@ def limit_lines(st, limits) -> list[str]:
             continue
         parts = []
         for x in mine:
-            hue = st.red if x["percent"] >= 90 else st.yellow if x["percent"] >= 70 else ""
+            hue = st.dim if x["stale"] else st.red if x["percent"] >= 90 else st.yellow if x["percent"] >= 70 else ""
             pct = f"{hue}{x['percent']}%{st.reset}" if hue else f"{x['percent']}%"
-            parts.append(f"{x['name']} {st.dim if x['stale'] else ''}{pct}{st.reset if x['stale'] else ''} {short(x)}".rstrip())
-        out.append(f"{tool} limits: " + " · ".join(parts) + f" {st.dim}· {age(mine[0])}{st.reset}")
+            parts.append(f"{x['name']} {pct}" + ("" if x["stale"] else f" {short(x)}".rstrip()))
+        note = age(mine[0])
+        if any(x["stale"] for x in mine):
+            note += ", out of date" + (": open /usage in Claude Code" if tool == "Claude" else "")
+        out.append(f"{tool} limits: " + " · ".join(parts) + f" {st.dim}· {note}{st.reset}")
     return out
 
 
@@ -280,29 +427,31 @@ def show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows=
         print(table(st, headers, out, align))
 
         auto = sum(r["auto_tokens"] for r in rows)
-        parts = [f"{fmt(t['total'])} incl. cache reads", f"in {fmt(sum(r['input'] for r in rows))}",
-                 f"cache writes {fmt(sum(r['cache_write'] for r in rows))}", f"out {fmt(sum(r['output'] for r in rows))}"]
-        if auto:
-            parts.append(f"subagents {fmt(auto)}" + (" (not judged)" if routing else ""))
+        if args.sessions:                       # --detail: what the tokens and the cost are made of
+            kinds = [f"{fmt(t['total'])} incl. cache reads", f"input {fmt(sum(r['input'] for r in rows))}",
+                     f"cache writes {fmt(sum(r['cache_write'] for r in rows))}", f"output {fmt(sum(r['output'] for r in rows))}"]
+            print(f"{st.dim}tokens: " + " · ".join(kinds) + st.reset)
+            cparts = defaultdict(float)
+            for r in rows:
+                for k, v in (r.get("cost_parts") or {}).items():
+                    cparts[k] += v
+            if split(cparts):
+                print(f"{st.dim}cost: {split(cparts)}{st.reset}")
+        if adhoc or wk == per.current():
+            for line in limit_lines(st, limits):
+                print("\n".join(wrap(line)))
+        notes = []
         if routing:
-            parts.insert(0, f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
-        print(f"{st.dim}" + " · ".join(parts) + st.reset)
-        parts = defaultdict(float)
-        for r in rows:
-            for k, v in (r.get("cost_parts") or {}).items():
-                parts[k] += v
-        if split(parts):
-            print(f"{st.dim}cost: {split(parts)}{st.reset}")
-        notes = [f"API prices of {AS_OF}, not a subscription bill"]
+            notes.append(f"on-policy {pct(on_policy_pct(rows))} of judged tokens")
+        if auto:
+            notes.append(f"subagents {fmt(auto)}" + (" (not judged)" if routing else ""))
         if t["unpriced"]:
             um = sorted({r["model"] for r in rows if r.get("unpriced")})
             notes.append(f"{fmt(t['unpriced'])} tokens have no price ({', '.join(um[:3])}): add them under \"prices\" in config")
+        notes.append(f"cost at API prices of {AS_OF}, not your bill")
         if not args.sessions:
-            notes.append("--sessions for details")
-        print(f"{st.dim}" + " · ".join(notes) + st.reset)
-        if adhoc or wk == per.current():
-            for line in limit_lines(st, limits):
-                print(line)
+            notes.append("more: --detail, agentmeter tui")
+        print("\n".join(f"{st.dim}{x}{st.reset}" for x in wrap(" · ".join(notes))))
         if routing:
             note = unmapped_note(rows)
             if note:
@@ -326,54 +475,79 @@ def sessions_detail(st, rows, ss, routing, n):
         print(f"\n{st.b}{r['model']}{st.reset} {st.dim}· {r['tool']} · {len(mine)} session{'s' * (len(mine) != 1)}{st.reset}")
         for s in mine[:n]:
             tag = f"[{s['category']}] " if routing else ""
-            print(f"  {fmt(s['fresh']):>7} {money(s.get('cost')):>8}  {st.dim}{clip(s['project'], 14):<14}{st.reset} {tag}{clip(s['prompt'], 60)}")
+            print(f"  {fmt(s['fresh']):>7} {money(s.get('cost')):>8}  {st.dim}{clip(s['project'], 14):<14}{st.reset} "
+                  f"{tag}{clip(s['prompt'], 45 - len(tag))}")
+
+
+HELP = """Tokens your coding agents used, per model, per window (a week by default).
+
+commands:
+  agentmeter              this window: tokens, cost, models, plan limits
+  agentmeter tui          full-screen view: flip through windows, today, reports
+  agentmeter reports      saved reports, one per finished window
+  agentmeter setup        choose tools, your window, and routing
+  agentmeter doctor       check it's working: config, tools found, reports
+
+Each command has its own --help."""
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv[:1] == ["init"]:
+    cmd = argv[:1]
+    if cmd in (["setup"], ["init"]):
         from .wizard import main_init
+        if "-h" in argv or "--help" in argv:
+            print("usage: agentmeter setup\n\nThe setup questions: which tools to read, when your window starts and how long it is, "
+                  "and optional routing. Change your answers any time by running it again.")
+            return
         return main_init()
-    if argv[:1] == ["check"]:
-        return check(argv[1:])
-    if argv[:1] == ["tui"]:
+    if cmd in (["doctor"], ["check"]):
+        return doctor(argv[1:])
+    if cmd == ["reports"]:
+        return reports_cmd(argv[1:])
+    if cmd == ["tui"]:
         from .tui import main as tui_main
         return tui_main(argv[1:])
-    if not config_path().exists() and sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("AGENTMETER_NO_WIZARD") and "--tools" not in argv:
-        print("No config yet; running setup (skip with AGENTMETER_NO_WIZARD=1).")
+    quiet = {"--tools", "--json", "--status", "--status-json", "--save", "-h", "--help"}
+    if (not config_path().exists() and sys.stdin.isatty() and sys.stdout.isatty() and not os.environ.get("AGENTMETER_NO_WIZARD")
+            and not quiet & set(argv)):
+        print("No setup yet, so here are the questions (skip with AGENTMETER_NO_WIZARD=1).")
         from .wizard import main_init
         main_init()
-    ap = argparse.ArgumentParser(prog="agentmeter", description="Token usage and model routing for agentic coding tools.",
-                                 epilog="agentmeter init    interactive setup (tools, models, tiers, policy)\n"
-                                        "agentmeter check   validate the config; show how models and sessions resolve",
+    ap = argparse.ArgumentParser(prog="agentmeter", usage="agentmeter [command] [options]", description=HELP,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tool", action="append", help="adapter name; repeatable. Default: every adapter with logs present")
-    ap.add_argument("--root", action="append", default=[], metavar="TOOL=DIR", help="override a tool's log root")
-    ap.add_argument("--periods", "--weeks", type=int, dest="periods", metavar="N",
-                    help="last N windows, current included (default 4; window length and start come from config `period`)")
-    ap.add_argument("--period", "--week", dest="period",
-                    help="one window: 'this', 'last', any date in it (2026-10-22), or an ISO week (2026-W43)")
-    ap.add_argument("--since", help="ad hoc window from then until now: 6h, 3d, 2w, today, a date or an ISO datetime")
-    ap.add_argument("--from", dest="frm", metavar="DATE", help="ad hoc window start (date or ISO datetime)")
-    ap.add_argument("--to", metavar="DATE", help="with --from: ad hoc window end; a plain date includes that whole day")
-    ap.add_argument("--today", action="store_true", help="same as --since today")
-    ap.add_argument("--status", action="store_true", help="one line for a status bar: tokens used this window, e.g. 'TOKENS 1.13M'")
-    ap.add_argument("--status-json", action="store_true", help="Waybar JSON: {text (Pango markup), tooltip, class}")
-    ap.add_argument("--json", action="store_true")
-    ap.add_argument("--save", nargs="?", const=report.DEFAULT_DIR, metavar="DIR",
-                    help=f"write <start>.md and <start>.json for each finished window that has no report yet "
-                         f"(default DIR: {report.DEFAULT_DIR})")
-    ap.add_argument("--force", action="store_true", help="with --save: rewrite reports that already exist")
-    ap.add_argument("--sessions", action="store_true", help="list the largest sessions per model under the table")
-    ap.add_argument("--prompts", type=int, metavar="N", help="how many sessions to list per model (default 5 with --sessions)")
-    ap.add_argument("--tools", action="store_true", help="list adapters and whether their logs exist")
+    rng = ap.add_argument_group("which time to show (default: the last 4 windows, this one in detail)")
+    rng.add_argument("--today", action="store_true", help="since midnight")
+    rng.add_argument("--since", metavar="WHEN", help="from then until now: 6h, 3d, 2w, a date or an ISO datetime")
+    rng.add_argument("--from", dest="frm", metavar="DATE", help="from this date (or ISO datetime) ...")
+    rng.add_argument("--to", metavar="DATE", help="... to this one; a plain date includes that whole day")
+    rng.add_argument("--period", dest="period", metavar="WHICH", help="one window: this, last, or any date in it")
+    rng.add_argument("--periods", type=int, dest="periods", metavar="N", help="the last N windows (default 4)")
+    det = ap.add_argument_group("detail")
+    det.add_argument("--detail", action="store_true", dest="sessions",
+                     help="also the largest sessions per model, and what the tokens and cost are made of")
+    det.add_argument("--top", type=int, dest="prompts", metavar="N", help="with --detail: sessions per model (default 5)")
+    out = ap.add_argument_group("for scripts and status bars")
+    out.add_argument("--json", action="store_true", help="everything as JSON: {periods, sessions, config, limits}")
+    out.add_argument("--status", action="store_true", help="one line: TOKENS 1.13M")
+    out.add_argument("--status-json", action="store_true", help="Waybar JSON: {text, tooltip, class}")
+    adv = ap.add_argument_group("where to read")
+    adv.add_argument("--tool", action="append", metavar="NAME", help="only this tool (repeatable); default: your setup, else every tool found")
+    adv.add_argument("--root", action="append", default=[], metavar="TOOL=DIR", help="read a tool's logs from another folder")
+    # older spellings: still accepted, not listed
+    hide = argparse.SUPPRESS
+    ap.add_argument("--weeks", type=int, dest="periods", help=hide)
+    ap.add_argument("--week", dest="period", help=hide)
+    ap.add_argument("--sessions", action="store_true", dest="sessions", help=hide)
+    ap.add_argument("--prompts", type=int, dest="prompts", help=hide)
+    ap.add_argument("--tools", action="store_true", help=hide)
+    ap.add_argument("--save", nargs="?", const=report.DEFAULT_DIR, metavar="DIR", help=hide)
+    ap.add_argument("--force", action="store_true", help=hide)
     args = ap.parse_args(argv)
 
     if args.tools:
-        for n in adapters.BUILTIN:
-            mod = adapters.load(n)
-            r = mod.default_root()
-            print(f"{mod.NAME:<12} {'found ' if r.exists() else 'absent'}  {adapters.where(mod, r if r.exists() else None):<52} {mod.DESC}")
+        for name, state, where, desc in tool_rows():
+            print(f"{name:<12} {state:<6}  {where:<46} {desc}")
         return
 
     cfg = load_config()
@@ -381,11 +555,11 @@ def main(argv=None):
         roots = {**cfg.get("roots", {}), **dict(r.split("=", 1) for r in args.root)}
     except ValueError:
         ap.error("--root: expected TOOL=DIR, e.g. --root codex=/path/to/sessions")
-    if not args.tool and cfg.get("tools"):
-        args.tool = cfg["tools"]
     for t in args.tool or []:
         if t.replace("-", "_") not in adapters.BUILTIN:
             ap.error(f"--tool: unknown tool {t!r}; known: {', '.join(n.replace('_', '-') for n in adapters.BUILTIN)}")
+    if not args.tool and cfg.get("tools"):
+        args.tool = [t for t in cfg["tools"] if t not in adapters.REMOVED] or None
     policy = load_policy(cfg)
     per = Periods.from_config(cfg)
     this_p, last_p = per.back(2)[::-1]
@@ -485,13 +659,18 @@ def main(argv=None):
                                "note": short(x)} for x in shown]
         meta["limits_caption"] = " · ".join(f"{t} {age(next(x for x in shown if x['tool'] == t))}"
                                             for t in dict.fromkeys(x["tool"] for x in shown))
+        # the latest saved reports, newest first, for the menu's Reports submenu
+        meta["reports"] = [{"period": r["key"], "label": span_label(dt.date.fromisoformat(r["key"]), dt.date.fromisoformat(r["end"])),
+                            "fresh": r["fresh"], "cost": r["cost"], "path": str(r["md"])}
+                           for r in reversed(saved_reports(reports_dir())[-6:]) if r["md"].exists()]
+        meta["reports_dir"] = str(reports_dir())
         json.dump({"periods": weekly, "sessions": sessions, "config": meta, "limits": limits}, sys.stdout, indent=1)
         return
     if not weekly:
         print(f"no sessions in {label(wanted[0]) if adhoc else 'the selected ' + per.name + 's'}")
         if adhoc or per.current() in wanted:
             for line in limit_lines(Style(use_color()), all_limits()):
-                print(line)
+                print("\n".join(wrap(line)))
         return
     show(weekly, sessions, wanted, label, per, prev, cfg, adhoc, args, all_rows, all_limits())
 

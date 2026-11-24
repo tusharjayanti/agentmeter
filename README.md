@@ -44,7 +44,7 @@ It needs Python 3.9 or newer and nothing else. On a Mac without developer tools,
 
 ## Always in view
 
-The menu bar shows the week's tokens so far. Click it for the cost, your plan's 5-hour and weekly limits, the breakdown by model, last week's total, and the latest report.
+The menu bar shows the week's tokens so far. Click it for a glance: the week's cost, each model, your plan's limits, and last week. Click any of those for the full view.
 
 On Linux, the same number goes in your top bar: a GNOME extension through [Argos](https://github.com/p-e-w/argos), or one line for Waybar, Polybar or tmux ([snippets](docs/configuration.md#linux-status-bars)).
 
@@ -53,23 +53,20 @@ On Linux, the same number goes in your top bar: a GNOME extension through [Argos
 What you see when you click **TOKENS** in the menu bar. The screenshot uses demo data (made-up projects, made-up limits), so the figures are examples. Each number matches a section below.
 
 <p align="center">
-  <img src="docs/images/menu.png" width="560" alt="The agentmeter menu with six numbered parts: this week's totals, models, cost by kind of token, plan limits, last week, and actions">
+  <img src="docs/images/menu.png" width="560" alt="The agentmeter menu with five numbered parts: this week, models, plan limits, last week, and actions">
 </p>
 
-#### 1. This week at a glance
+#### 1. This week
 
 ```
-This week (since Fri 6 Nov)
-2.18M tokens · $22.53 · 8 sessions
-45.35M including cache reads · cost at API prices
+This week · since Fri 6 Nov · cost at API prices
+2.18M tokens · $22.53 · 8 sessions                ›
 ```
 
-- **Window:** your measurement window from settings (`period`). Here it is weeks starting on Friday.
-- **Tokens:** fresh tokens: input, cache writes and output. The same number as the **TOKENS** label in the menu bar.
+- **Tokens:** fresh tokens: input, cache writes and output. The same number as the **TOKENS** label in the menu bar. Cache reads, the cheap re-reading of the conversation so far, are left out on purpose: on Claude Code they are usually over 90% of all tokens.
 - **Cost:** what those calls would cost at the vendors' published API prices. On a Pro or Max subscription it is not your bill; it is the pay-as-you-go equivalent, useful for comparing weeks. See [Cost](docs/configuration.md#cost-prices).
 - **Sessions:** distinct coding sessions this week. A session that used two models counts once.
-- **Grey line:** the total if you add cache reads, the cheap re-reading of the conversation so far. They are left out of the headline on purpose: on Claude Code they are usually over 90% of all tokens.
-- **Click:** opens this week's full breakdown in Terminal.
+- **›** (hover): what the cost is made of: output, cache reads, cache writes and input, as bars that add up to the total, plus the total including cache reads.
 
 #### 2. Models
 
@@ -78,62 +75,32 @@ claude-opus-5-5     ██████────   1.23M   $16.60
 gpt-5.3-codex       ███───────    610k    $3.90
 ```
 
-- **Bar:** each model's share of this week's tokens. Models are sorted largest first, and each keeps its colour in the last-week submenu.
-- **Tokens:** that model's fresh tokens this week, across every tool that used it (Claude Code, Codex, Gemini CLI, Aider).
-- **Cost:** that model's cost at its own price. The rows add up to the headline: $16.60 + $3.90 + $1.89 + $0.14 = $22.53.
-- **Click:** opens the breakdown in Terminal. Hover for the tool and session count.
+Each model's share of this week's tokens, its tokens and its cost, largest first. The costs add up to the headline. A model with no published price shows `–` instead of a guess; add its price under `prices` in settings.
 
-A model with no published price shows `–` instead of a guess. Add its price under `prices` in settings.
-
-#### 3. What the cost is made of
+#### 3. Plan limits
 
 ```
-COST · at API prices
-output         ████──────   $9.02
-cache reads    ███───────   $7.61
-```
-
-The same $22.53, split by kind of token instead of by model, largest first. The rows add up to the headline.
-
-- **Output:** text and code the model wrote, including thinking. The most expensive kind per token.
-- **Cache reads:** the model re-reading the conversation so far. Very cheap per token, but there are so many that they add up.
-- **Cache writes:** putting new context into the cache. Claude charges 1.25× the input price for the 5-minute cache and 2× for the 1-hour cache.
-- **Input:** prompt tokens that weren't cached.
-
-The split is there so the cost can be checked by hand. It also shows why a week can cost more than its token count suggests: much of the money often goes on cache reads and writes.
-
-#### 4. Plan limits
-
-```
-LIMITS · Claude as of 16:24
+Plan limits · Claude as of 16:24
 Claude 5-hour   ██████────   62%   resets 18:44
 Claude week     ████──────   41%   resets Mon 16 Nov
 ```
 
-- **Bar:** how much of each subscription limit you have used, 0 to 100%. The same figures as Claude Code's `/usage`.
-- **Resets:** when that limit starts over: a time if it is today, otherwise a date.
-- **As of:** when the reading was taken. agentmeter never goes online. For Claude it reads the copy Claude Code saves in `~/.claude.json`; for Codex, the limits written into its session logs. Opening `/usage` in Claude Code refreshes Claude's reading.
-- **Colour:** green below 70%, orange from 70%, red from 90%. Grey, with "reset since", once the reset time has passed and the reading is out of date.
+How much of each subscription limit you have used, the same figures as Claude Code's `/usage`. Green below 70%, orange from 70%, red from 90%. agentmeter never goes online: it reads the copy Claude Code saves in `~/.claude.json`, and the limits Codex writes into its logs. Once a reset time has passed the reading is out of date, so the bars turn grey; opening `/usage` in Claude Code refreshes it. API-key users have no plan limits, so this part is left out. See [Plan limits](docs/configuration.md#plan-limits).
 
-API-key users have no plan limits, so this part is left out for them. See [Plan limits](docs/configuration.md#plan-limits).
-
-#### 5. Last week
+#### 4. Last week
 
 ```
-Last week: 1.75M · $17.70   this week so far ↑25%   ›
+Last week  1.75M · $17.70   this week so far ↑25%   ›
 ```
 
-- **Figures:** last week's tokens and cost, and how this week compares so far: green ↑ for more, red ↓ for less. Early in a week the change reads low, because the week isn't over yet.
-- **Submenu:** last week's models with the same bars, and a link to its saved report.
+Last week's tokens and cost, and how this week compares so far. Hover for last week's models and its saved report.
 
-#### 6. Actions
+#### 5. Actions
 
-- **Open latest report:** the last finished week's report, saved as Markdown in `~/.local/share/agentmeter/reports/`. One is written for each week when it ends, and never changed after.
-- **Open reports folder:** one `.md` to read and one `.json` for scripts per week.
-- **Change setup…:** runs `agentmeter init` in Terminal to change tools, the week's start day and length, or model routing.
-- **Edit settings file:** opens `~/.config/agentmeter/config.json`, for settings the setup questions don't ask, like extra prices.
-- **Refresh now (⌘R):** re-reads the logs. The menu also refreshes every 15 minutes and each time you open it.
-- **Quit (⌘Q):** closes the app until your next login.
+- **Open full view… (⌘O):** `agentmeter tui` in Terminal. Clicking this week or any model opens it too.
+- **Reports:** the latest saved reports with their totals; each opens as Markdown. One is written when each week ends, and never changed after.
+- **Settings:** **Tools, window and routing…** asks the setup questions again in Terminal. **Open config file** opens `~/.config/agentmeter/config.json` for settings the questions don't cover, like extra prices. **Check setup…** runs `agentmeter doctor`.
+- **Refresh (⌘R):** re-reads the logs. The menu also refreshes every 15 minutes and each time you open it.
 
 ## Any range, any time
 
@@ -142,12 +109,14 @@ Last week: 1.75M · $17.70   this week so far ↑25%   ›
 </p>
 
 ```sh
-agentmeter                     # the last 4 weeks, then this week per model, with cost
-agentmeter tui                 # full screen: flip through weeks, today, the last 5 hours, reports
-agentmeter --today             # or --since 6h, --since 3d, --from 2026-10-01 --to 2026-10-15
-agentmeter --period last       # one week: this, last, or any date in it; --sessions for the largest sessions
-agentmeter --json              # everything, for your own scripts
+agentmeter            # this week: tokens, cost, models, limits (after a table of the last 4)
+agentmeter tui        # full screen: flip through weeks, today, the last 5 hours, reports
+agentmeter reports    # saved reports; agentmeter reports last prints the latest
+agentmeter setup      # change tools, your week, routing
+agentmeter doctor     # check everything is found and running
 ```
+
+Any range: `agentmeter --today`, `--since 6h`, `--from 2026-10-01 --to 2026-10-15`, `--period last`. Add `--detail` for the largest sessions, `--json` for your own scripts.
 
 <p align="center">
   <img src="docs/images/tui.png" width="760" alt="agentmeter tui: a full-screen view with tabs for the week, today, the last 5 hours and reports; tokens and cost with changes, tokens per day, a model table, and the selected model's sessions">
@@ -169,7 +138,7 @@ When a week ends, agentmeter saves it to `~/.local/share/agentmeter/reports/`, a
 
 ## Make it yours
 
-Change your answers any time with `agentmeter init`, or **Change setup…** in the menu.
+Change your answers any time with `agentmeter setup`, or **Settings › Tools, window and routing…** in the menu.
 
 | Setting | What it does |
 |---|---|
@@ -192,13 +161,13 @@ Every setting, the full command line and uninstall steps are in [docs/configurat
 | Tool | Status |
 |---|---|
 | Claude Code | tested on real logs |
-| OpenAI Codex CLI, Gemini CLI, Aider | built from their documented formats; tested on sample files only |
+| OpenAI Codex CLI, Gemini CLI | built from their documented formats; tested on sample files only |
 | Anything else | export to a [simple JSONL format](docs/adapters.md#your-own-tool) |
 
 ## Help wanted
 
 - **Linux users:** the installer and top-bar output have only run in CI. Try it and [open an issue](https://github.com/tusharjayanti/agentmeter/issues) with what you find.
-- **Codex CLI, Gemini CLI and Aider users:** tell us whether your logs are read correctly.
+- **Codex CLI and Gemini CLI users:** tell us whether your logs are read correctly.
 - **More tools:** Cursor, GitHub Copilot CLI and OpenCode each need one adapter file ([how](docs/adapters.md#writing-an-adapter)).
 
 Run the tests with `python3 -m pytest -q tests`.
