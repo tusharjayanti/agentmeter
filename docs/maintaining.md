@@ -14,7 +14,7 @@ To retake them:
 
 1. Write demo sessions in the generic format (see [adapters](adapters.md#your-own-tool)) covering at least three weeks, and a config pointing at them: `{"tools": ["generic"], "roots": {"generic": "<dir>"}, "period": {"start": "<a Friday three weeks back>", "length": "1w"}}`. Save demo reports with `AGENTMETER_CONFIG=<demo config> agentmeter reports save --dir <demo reports dir>`.
 2. Build the app in screenshot mode, which opens its own menu once data has loaded: `swiftc -O -swift-version 5 -D SCREENSHOT macos/AgentmeterBar.swift -o /tmp/bar-shot`.
-3. Stop the real app (`launchctl bootout gui/$(id -u)/io.github.agentmeter.bar`), run `AGENTMETER_CONFIG=<demo config> AGENTMETER_REPORTS=<demo reports dir> /tmp/bar-shot`, and capture the menu window alone with `screencapture -o -l <window id>` (find the id with `CGWindowListCopyWindowInfo`, owner `bar-shot`).
+3. Click a window on the Retina screen first: macOS opens the menu on the display that has focus, and a 1x display gives a soft picture. Stop the real app (`launchctl bootout gui/$(id -u)/io.github.agentmeter.bar`), run `AGENTMETER_CONFIG=<demo config> AGENTMETER_REPORTS=<demo reports dir> /tmp/bar-shot`, and capture the menu window alone with `screencapture -o -l <window id>` (find the id with `CGWindowListCopyWindowInfo`, owner `bar-shot`).
 4. Restart the real app: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.agentmeter.bar.plist`.
 5. Render the HTML pages with headless Chrome at 2x: `--headless=new --force-device-scale-factor=2 --default-background-color=00000000 --screenshot`.
 
