@@ -55,7 +55,7 @@ def pct(p):
 
 
 def collect(tool_names, roots, since_ts=None, quiet=False):
-    mods = [adapters.load(t) for t in tool_names] if tool_names else adapters.available()
+    mods = [adapters.load(t) for t in tool_names if t not in adapters.REMOVED] if tool_names else adapters.available()
     for mod in mods:
         root = Path(roots.get(mod.NAME)).expanduser() if roots.get(mod.NAME) else mod.default_root()
         if not root.exists():
@@ -555,11 +555,11 @@ def main(argv=None):
         roots = {**cfg.get("roots", {}), **dict(r.split("=", 1) for r in args.root)}
     except ValueError:
         ap.error("--root: expected TOOL=DIR, e.g. --root codex=/path/to/sessions")
-    if not args.tool and cfg.get("tools"):
-        args.tool = cfg["tools"]
     for t in args.tool or []:
         if t.replace("-", "_") not in adapters.BUILTIN:
             ap.error(f"--tool: unknown tool {t!r}; known: {', '.join(n.replace('_', '-') for n in adapters.BUILTIN)}")
+    if not args.tool and cfg.get("tools"):
+        args.tool = [t for t in cfg["tools"] if t not in adapters.REMOVED] or None
     policy = load_policy(cfg)
     per = Periods.from_config(cfg)
     this_p, last_p = per.back(2)[::-1]

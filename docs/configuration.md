@@ -22,7 +22,7 @@ Windows are named by their start date. Starting on a Friday with `1w` gives Frid
 
 ## Cost: `prices`
 
-Every view shows what the tokens would cost at the vendors' API list prices: Anthropic for Claude Code, OpenAI for Codex, Google for Gemini CLI. Aider logs its own cost, which is used as it is. Models run locally through Ollama or LM Studio cost $0. The bundled prices are dated (`agentmeter/prices.py`, `AS_OF`) and copied from the vendors' pricing pages.
+Every view shows what the tokens would cost at the vendors' API list prices: Anthropic for Claude Code, OpenAI for Codex, Google for Gemini CLI. A cost your own export logs (the generic format's `cost`) is used as it is. Models run locally through Ollama or LM Studio cost $0. The bundled prices are dated (`agentmeter/prices.py`, `AS_OF`) and copied from the vendors' pricing pages.
 
 This is an API-equivalent figure. On a subscription (Claude Pro or Max, ChatGPT Plus or Pro, a Google login) it is not your bill. It shows what the same work would cost on pay-as-you-go, which is useful for comparing weeks and models.
 

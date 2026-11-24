@@ -13,7 +13,7 @@ def run(tmp_path, *args, cfg=None):
         (tmp_path / "cfg.json").write_text(json.dumps(cfg))
     env = {**os.environ, "HOME": str(tmp_path), "CLAUDE_DIR": str(FX / "claude_code"),
            "AGENTMETER_CONFIG": str(tmp_path / "cfg.json"), "AGENTMETER_NO_WIZARD": "1"}
-    env.pop("CODEX_HOME", None); env.pop("AIDER_REPOS", None)
+    env.pop("CODEX_HOME", None)
     return subprocess.run([sys.executable, "-m", "agentmeter", *args], env=env, cwd=REPO, capture_output=True, text=True)
 
 

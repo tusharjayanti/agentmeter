@@ -161,13 +161,13 @@ Every setting, the full command line and uninstall steps are in [docs/configurat
 | Tool | Status |
 |---|---|
 | Claude Code | tested on real logs |
-| OpenAI Codex CLI, Gemini CLI, Aider | built from their documented formats; tested on sample files only |
+| OpenAI Codex CLI, Gemini CLI | built from their documented formats; tested on sample files only |
 | Anything else | export to a [simple JSONL format](docs/adapters.md#your-own-tool) |
 
 ## Help wanted
 
 - **Linux users:** the installer and top-bar output have only run in CI. Try it and [open an issue](https://github.com/tusharjayanti/agentmeter/issues) with what you find.
-- **Codex CLI, Gemini CLI and Aider users:** tell us whether your logs are read correctly.
+- **Codex CLI and Gemini CLI users:** tell us whether your logs are read correctly.
 - **More tools:** Cursor, GitHub Copilot CLI and OpenCode each need one adapter file ([how](docs/adapters.md#writing-an-adapter)).
 
 Run the tests with `python3 -m pytest -q tests`.

@@ -32,7 +32,7 @@ fi
 [[ " $* " == *" --widget-only "* ]] && set -- --no-job
 [[ " $* " == *" --job-only "* ]] && set -- --no-widget
 FOUND="$(AGENTMETER_NO_WIZARD=1 "$AM" --tools 2>/dev/null | awk '$2 == "found" {printf "%s%s", sep, $1; sep=", "}')"
-echo "logs:   ${FOUND:-none yet (agentmeter picks them up once you use Claude Code, Codex, Gemini CLI or Aider)}"
+echo "logs:   ${FOUND:-none yet (agentmeter picks them up once you use Claude Code, Codex or Gemini CLI)}"
 
 # Setup questions: run now, before the job and widget, so their first numbers use
 # your policy. Skipped when a config exists (re-run any time: agentmeter setup),
