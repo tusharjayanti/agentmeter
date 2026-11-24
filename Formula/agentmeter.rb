@@ -19,7 +19,7 @@ class Agentmeter < Formula
 
   def caveats
     <<~EOS
-      First run walks you through setup:  agentmeter init
+      First run walks you through setup:  agentmeter setup
       The menu bar app (built locally with swiftc, starts at login) and the report job are optional:
         bash #{pkgshare}/install.sh --widget-only   # or run install.sh from a clone
       Status line for any bar:  agentmeter --status
@@ -27,6 +27,6 @@ class Agentmeter < Formula
   end
 
   test do
-    assert_match "claude-code", shell_output("#{bin}/agentmeter --tools")
+    assert_match "claude-code", shell_output("#{bin}/agentmeter doctor")
   end
 end

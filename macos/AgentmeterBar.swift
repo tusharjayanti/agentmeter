@@ -171,6 +171,7 @@ struct Snapshot {
     var costParts: [String: [(String, Double)]] = [:]   // period -> [("cache reads", 5.40), …], largest first
     var limitRows: [(label: String, percent: Double, stale: Bool, note: String)] = []
     var limitsCaption = ""                               // "Claude as of 16:00"
+    var reports: [(label: String, fresh: Double, cost: Double?, path: String)] = []   // newest first
     var sessionKeys: [String: Set<String>] = [:]   // period -> distinct "tool/session" (a session using two models counts once)
     var error: String?
 
@@ -220,6 +221,10 @@ func loadSnapshot() -> Snapshot {
                             stale: r["stale"] as? Bool ?? false, note: r["note"] as? String ?? ""))
     }
     s.limitsCaption = cfg["limits_caption"] as? String ?? ""
+    for r in cfg["reports"] as? [[String: Any]] ?? [] {
+        s.reports.append((label: r["label"] as? String ?? "", fresh: (r["fresh"] as? NSNumber)?.doubleValue ?? 0,
+                          cost: (r["cost"] as? NSNumber)?.doubleValue, path: r["path"] as? String ?? ""))
+    }
     for r in obj["periods"] as? [[String: Any]] ?? [] {
         s.rows.append(Row(period: r["period"] as? String ?? "", tool: r["tool"] as? String ?? "",
                           model: r["model"] as? String ?? "?",
@@ -344,15 +349,17 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(f)
     }
 
-    @objc func showThisPeriod() { showInTerminal("--period this") }
+    /// Every data row opens the same place: the full-screen view.
+    @objc func openFullView() { showInTerminal("tui") }
+    @objc func runDoctor() { showInTerminal("doctor; echo; read -n 1 -s -p 'Press any key to close'") }
 
-    @objc func showLastPeriod() {
+    @objc func openLastPeriod() {
         let report = reportsURL.appendingPathComponent("\(snap.lastPeriod).md")
-        if FileManager.default.fileExists(atPath: report.path) {
-            NSWorkspace.shared.open(report)
-        } else {
-            showInTerminal("--period last")
-        }
+        if FileManager.default.fileExists(atPath: report.path) { NSWorkspace.shared.open(report) } else { openFullView() }
+    }
+
+    @objc func openReport(_ sender: NSMenuItem) {
+        if let path = sender.representedObject as? String { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
     }
 
     @objc func runSetup() {
@@ -364,7 +371,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let body = """
         #!/bin/bash
         clear
-        '\(bin)' init
+        '\(bin)' setup
         sleep 2
         (sleep 0.5; osascript -e 'tell application "Terminal" to close (every window whose name contains "setup.command")') >/dev/null 2>&1 & disown
         exit 0
@@ -377,12 +384,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { self.refresh() }
     }
 
+    /// The menu is a glance: this window, its models, plan limits, last window. Anything deeper is one
+    /// click away in `agentmeter tui`; every data row opens it.
     func build(_ menu: NSMenu) {
         menu.removeAllItems()
         let s = snap
-        if !FileManager.default.fileExists(atPath: configURL.path) {
-            menu.addItem(action("Set up agentmeter… (your tools and week)", #selector(runSetup)))
-            menu.addItem(text("Using defaults until then: weeks from Monday", size: 11, color: .secondaryLabelColor))
+        let hasConfig = FileManager.default.fileExists(atPath: configURL.path)
+        if !hasConfig {
+            menu.addItem(action("Set up agentmeter…", #selector(runSetup)))
+            menu.addItem(text("Using defaults until then: weeks from Monday, every tool", size: 11, color: .secondaryLabelColor))
             menu.addItem(.separator())
         }
         if let e = s.error {
@@ -391,11 +401,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             let cur = s.fresh(s.thisPeriod), prev = s.fresh(s.lastPeriod)
             let sessions = s.sessions(s.thisPeriod)
-            let show = #selector(showThisPeriod)
-            menu.addItem(text("This \(s.name) (since \(since(s.thisPeriod)))", size: 12, color: .secondaryLabelColor, action: show))
-            menu.addItem(text("\(fmt(cur)) tokens · \(money(s.cost(s.thisPeriod))) · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15, action: show))
-            menu.addItem(text("\(fmt(s.total(s.thisPeriod))) including cache reads · cost at API prices", size: 11, color: .secondaryLabelColor, action: show))
-            menu.addItem(.separator())
+            let full = #selector(openFullView)
+            let tip = "Click for the full view"
+            // 1. this window: caption, then the headline with what it is made of in a submenu
+            let cap = text("This \(s.name) · since \(since(s.thisPeriod)) · cost at API prices", size: 12, color: .secondaryLabelColor, action: full)
+            cap.toolTip = tip
+            menu.addItem(cap)
+            let head = text("\(fmt(cur)) tokens · \(money(s.cost(s.thisPeriod))) · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15)
             // one colour per model, the same in this week's rows and last week's submenu
             let rows = s.rows(s.thisPeriod), lastRows = s.rows(s.lastPeriod)
             var colour: [String: NSColor] = [:]
@@ -403,56 +415,65 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let parts = s.costParts[s.thisPeriod] ?? []
             let labels = (rows + lastRows).map { $0.model } + parts.map { $0.0 } + s.limitRows.map { $0.label }
             let width = min(24, labels.map { $0.count }.max() ?? 10)
-            if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: show)) }
+            let made = NSMenu()
+            made.autoenablesItems = false
+            made.addItem(text("What the cost is made of", size: 11, color: .secondaryLabelColor))
+            let costTotal = parts.reduce(0) { $0 + $1.1 }
+            for (name, dollars) in parts {
+                let it = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+                it.attributedTitle = barRow(name, width: width, share: costTotal > 0 ? dollars / costTotal : 0, value: "",
+                                            extra: money(dollars), colour: costColour[name] ?? .systemGray)
+                made.addItem(it)
+            }
+            if parts.isEmpty { made.addItem(text("No priced tokens yet", color: .secondaryLabelColor)) }
+            made.addItem(.separator())
+            made.addItem(text("\(fmt(s.total(s.thisPeriod))) tokens including cache reads", size: 11, color: .secondaryLabelColor))
+            made.addItem(text("Tokens above leave cache reads out: input, cache writes, output", size: 11, color: .secondaryLabelColor))
+            head.submenu = made
+            menu.addItem(head)
+            menu.addItem(.separator())
+            // 2. models
+            if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: full)) }
             for r in rows {
-                let it = NSMenuItem(title: r.model, action: show, keyEquivalent: "")
+                let it = NSMenuItem(title: r.model, action: full, keyEquivalent: "")
                 it.target = self
                 it.attributedTitle = barRow(r.model, width: width, share: cur > 0 ? r.fresh / cur : 0, value: fmt(r.fresh),
                                             extra: money(r.cost), colour: colour[r.model]!)
-                it.toolTip = "\(r.tool) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · click for the full breakdown"
+                it.toolTip = "\(r.tool) · \(r.sessions) session\(r.sessions == 1 ? "" : "s") · \(tip.lowercased())"
                 menu.addItem(it)
             }
-            // what the cost is made of, as bars of the same kind
-            let costTotal = parts.reduce(0) { $0 + $1.1 }
-            if !parts.isEmpty {
-                menu.addItem(.separator())
-                menu.addItem(text("COST · at API prices", size: 10, color: .secondaryLabelColor))
-                for (name, dollars) in parts {
-                    let it = NSMenuItem(title: name, action: show, keyEquivalent: "")
-                    it.target = self
-                    it.attributedTitle = barRow(name, width: width, share: costTotal > 0 ? dollars / costTotal : 0, value: "",
-                                                extra: money(dollars), colour: costColour[name] ?? .systemGray)
-                    menu.addItem(it)
-                }
-            }
-            // plan limits, from the tools' own last reading
+            // 3. plan limits, from the tools' own last reading
             if !s.limitRows.isEmpty {
                 menu.addItem(.separator())
-                menu.addItem(text("LIMITS · \(s.limitsCaption)", size: 10, color: .secondaryLabelColor))
+                menu.addItem(text("Plan limits · \(s.limitsCaption)", size: 11, color: .secondaryLabelColor))
                 for l in s.limitRows {
                     let hue: NSColor = l.stale ? .systemGray : l.percent >= 90 ? .systemRed : l.percent >= 70 ? .systemOrange : .systemGreen
                     let it = NSMenuItem(title: l.label, action: nil, keyEquivalent: "")
                     it.attributedTitle = barRow(l.label, width: width, share: l.percent / 100, value: "\(Int(l.percent))%",
-                                                extra: l.note, extraRight: false, colour: hue, dim: l.stale)
+                                                extra: l.stale ? "" : l.note, extraRight: false, colour: hue, dim: l.stale)
                     menu.addItem(it)
+                }
+                if s.limitRows.contains(where: { $0.stale }) {
+                    menu.addItem(text("Out of date: open /usage in Claude Code to refresh", size: 11, color: .secondaryLabelColor))
                 }
             }
             menu.addItem(.separator())
-            // last week: total and change here, its models in a submenu
+            // 4. last window: total and change here, its models in a submenu
             let last = NSMenuItem(title: "Last \(s.name)", action: nil, keyEquivalent: "")
-            let lineFont = NSFont.menuFont(ofSize: 12)
-            let line = NSMutableAttributedString(string: "Last \(s.name): \(fmt(prev)) · \(money(s.cost(s.lastPeriod)))",
+            let lineFont = NSFont.menuFont(ofSize: 13)
+            let line = NSMutableAttributedString(string: "Last \(s.name)  \(fmt(prev)) · \(money(s.cost(s.lastPeriod)))",
                                                  attributes: [.font: lineFont, .foregroundColor: NSColor.labelColor])
             if prev > 0 {
-                line.append(NSAttributedString(string: "   this \(s.name) so far ", attributes: [.font: lineFont, .foregroundColor: NSColor.labelColor]))
-                line.append(changeLabel(cur, prev, font: lineFont))
+                let small = NSFont.menuFont(ofSize: 11)
+                line.append(NSAttributedString(string: "   this \(s.name) so far ", attributes: [.font: small, .foregroundColor: NSColor.secondaryLabelColor]))
+                line.append(changeLabel(cur, prev, font: small))
             }
             last.attributedTitle = line
             let sub = NSMenu()
             sub.autoenablesItems = false
             if let label = s.labels[s.lastPeriod] { sub.addItem(text(label, size: 11, color: .secondaryLabelColor)) }
             for r in lastRows {
-                let it = NSMenuItem(title: r.model, action: #selector(showLastPeriod), keyEquivalent: "")
+                let it = NSMenuItem(title: r.model, action: #selector(openLastPeriod), keyEquivalent: "")
                 it.target = self
                 it.attributedTitle = barRow(r.model, width: width, share: prev > 0 ? r.fresh / prev : 0, value: fmt(r.fresh),
                                             extra: money(r.cost), colour: colour[r.model]!)
@@ -461,30 +482,50 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if lastRows.isEmpty { sub.addItem(text("No sessions", color: .secondaryLabelColor)) }
             sub.addItem(.separator())
             let hasReport = FileManager.default.fileExists(atPath: reportsURL.appendingPathComponent("\(s.lastPeriod).md").path)
-            sub.addItem(action(hasReport ? "Open last \(s.name)'s report" : "Show last \(s.name) in Terminal", #selector(showLastPeriod)))
+            sub.addItem(action(hasReport ? "Open its report" : "Open full view", #selector(openLastPeriod)))
             last.submenu = sub
             menu.addItem(last)
         }
+        // 5. actions
         menu.addItem(.separator())
-        let reports = ((try? FileManager.default.contentsOfDirectory(atPath: reportsURL.path)) ?? [])
-            .filter { $0.hasSuffix(".md") }.sorted()
-        if let latest = reports.last {
-            menu.addItem(action("Open latest report (\(since(String(latest.dropLast(3)))))", #selector(openLatest)))
-            menu.addItem(action("Open reports folder", #selector(openReports)))
+        menu.addItem(action("Open full view…", #selector(openFullView), key: "o"))
+        let reports = NSMenuItem(title: "Reports", action: nil, keyEquivalent: "")
+        let rsub = NSMenu()
+        rsub.autoenablesItems = false
+        if s.reports.isEmpty {
+            rsub.addItem(text("None yet: one is saved when each \(s.name) ends", size: 12, color: .secondaryLabelColor))
         }
-        if FileManager.default.fileExists(atPath: configURL.path) {
-            menu.addItem(action("Change setup… (agentmeter init)", #selector(runSetup)))
-            menu.addItem(action("Edit settings file", #selector(openConfig)))
+        for r in s.reports {
+            let it = NSMenuItem(title: r.label, action: #selector(openReport(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = r.path
+            let t = NSMutableAttributedString(string: r.label, attributes: [.font: NSFont.menuFont(ofSize: 13)])
+            t.append(NSAttributedString(string: "   \(fmt(r.fresh)) · \(money(r.cost))",
+                                        attributes: [.font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor]))
+            it.attributedTitle = t
+            rsub.addItem(it)
         }
-        menu.addItem(action("Refresh now", #selector(refresh), key: "r"))
+        rsub.addItem(.separator())
+        rsub.addItem(action("Open reports folder", #selector(openReports)))
+        reports.submenu = rsub
+        menu.addItem(reports)
+        let settings = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        let ssub = NSMenu()
+        ssub.addItem(action(hasConfig ? "Tools, window and routing…" : "Set up agentmeter…", #selector(runSetup)))
+        if hasConfig { ssub.addItem(action("Open config file", #selector(openConfig))) }
+        ssub.addItem(.separator())
+        ssub.addItem(action("Check setup…", #selector(runDoctor)))
+        settings.submenu = ssub
+        menu.addItem(settings)
+        menu.addItem(.separator())
+        menu.addItem(action("Refresh", #selector(refresh), key: "r"))
         menu.addItem(action("Quit agentmeter", #selector(quit), key: "q"))
     }
 
-    @objc func openLatest() {
-        let reports = ((try? FileManager.default.contentsOfDirectory(atPath: reportsURL.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted()
-        if let latest = reports.last { NSWorkspace.shared.open(reportsURL.appendingPathComponent(latest)) }
+    @objc func openReports() {
+        try? FileManager.default.createDirectory(at: reportsURL, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(reportsURL)
     }
-    @objc func openReports() { NSWorkspace.shared.open(reportsURL) }
     @objc func openConfig() { NSWorkspace.shared.open(configURL) }
     @objc func quit() { NSApp.terminate(nil) }
 }

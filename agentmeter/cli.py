@@ -659,6 +659,11 @@ def main(argv=None):
                                "note": short(x)} for x in shown]
         meta["limits_caption"] = " · ".join(f"{t} {age(next(x for x in shown if x['tool'] == t))}"
                                             for t in dict.fromkeys(x["tool"] for x in shown))
+        # the latest saved reports, newest first, for the menu's Reports submenu
+        meta["reports"] = [{"period": r["key"], "label": span_label(dt.date.fromisoformat(r["key"]), dt.date.fromisoformat(r["end"])),
+                            "fresh": r["fresh"], "cost": r["cost"], "path": str(r["md"])}
+                           for r in reversed(saved_reports(reports_dir())[-6:]) if r["md"].exists()]
+        meta["reports_dir"] = str(reports_dir())
         json.dump({"periods": weekly, "sessions": sessions, "config": meta, "limits": limits}, sys.stdout, indent=1)
         return
     if not weekly:
