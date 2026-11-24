@@ -71,7 +71,7 @@ This week · since Fri 6 Nov · cost at API prices
 #### 2. Models
 
 ```
-Token usage split across models
+Token usage split by models
 claude-opus-5-5     ██████────   1.23M   $16.60
 gpt-5.3-codex       ███───────    610k    $3.90
 ```

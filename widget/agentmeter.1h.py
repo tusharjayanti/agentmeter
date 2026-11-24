@@ -97,7 +97,7 @@ if meta.get("cost_split", {}).get(this_p):
     print(f"--What the cost is made of: {meta['cost_split'][this_p]} | {GRAY} size=10")
 print(f"--{fmt(sum(r['total'] for r in rows))} tokens including cache reads | {GRAY} size=10")
 print("---")
-print(f"Token usage split across models | {GRAY} size=10")
+print(f"Token usage split by models | {GRAY} size=10")
 if not rows:
     print(f"No sessions yet this {name} | {GRAY} {FULL}")
 for r in rows:

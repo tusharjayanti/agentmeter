@@ -433,7 +433,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(head)
             menu.addItem(.separator())
             // 2. models: the bar is each model's share of this window's tokens
-            menu.addItem(text("Token usage split across models", size: 11, color: .secondaryLabelColor))
+            menu.addItem(text("Token usage split by models", size: 11, color: .secondaryLabelColor))
             if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: full)) }
             for r in rows {
                 let it = NSMenuItem(title: r.model, action: full, keyEquivalent: "")
