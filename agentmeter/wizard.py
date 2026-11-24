@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 
-from . import adapters
+from . import adapters, claude_settings
 from .core import DEFAULT_CONFIG, Periods, Policy, config_path, parse_length
 from .prompt import BOLD, DIM, GREEN, RESET, Abort, confirm, multiselect, select, text
 
@@ -174,6 +174,26 @@ def run(existing: dict | None = None) -> dict:
     if not tools:
         print(f"  {DIM}No tools selected; agentmeter will scan every adapter whose logs exist.{RESET}")
 
+    # Claude's plan limits: Claude Code hands them only to its status line, so offer ours
+    statusline = None                       # True: set it on save; False: remove ours on save; None: leave as is
+    if "claude-code" in tools or (not tools and any(mods[i].NAME == "claude-code" for i in found)):
+        now = claude_settings.status()
+        print(f"\n  {BOLD}Keep Claude's plan limits current?{RESET}")
+        print(f"  {DIM}Claude Code shares your 5-hour and weekly limits only with its status line. agentmeter can be that")
+        print(f"  status line: after each reply it saves the limits and shows a short line (tokens this week, 5h %, week %).")
+        print(f"  This sets `statusLine` in {claude_settings.settings_path()}. Without it, the limits only update when")
+        print(f"  you open /usage in Claude Code.{RESET}")
+        if now == "other":
+            print(f"  {DIM}You already have a status line, so it is left alone. To keep the limits current, add this to it:{RESET}")
+            print(f"    echo \"$input\" | {claude_settings.command()} --quiet")
+        elif now == "unreadable":
+            print(f"  {DIM}{claude_settings.settings_path()} isn't valid JSON, so it is left alone.{RESET}")
+        else:
+            statusline = select("  Use agentmeter's status line in Claude Code?",
+                                ["Yes", "No"], default=0 if now in ("", "agentmeter") else 1) == 0
+            if not statusline and now != "agentmeter":
+                statusline = None           # nothing to undo
+
     # 5. windows -------------------------------------------------------
     _header(2, total, "What should each report cover?")
     print(f"  {DIM}Reports cover back-to-back windows of one length. Each is saved the first hour after it ends.{RESET}")
@@ -227,6 +247,8 @@ def run(existing: dict | None = None) -> dict:
     if done:
         print(f"  saved on the first run: {len(done)} finished {per.name}(s) since {begins:%-d %b}")
     print(f"  next report: {per.end(first) + dt.timedelta(days=1):%a %-d %b %Y}, covering {per.label(first)}")
+    if statusline is not None:
+        print(f"  Claude status line: {'on' if statusline else 'off'}")
     print(f"  routing: {'on' if routing else 'off'}")
     for t, rxs in (cfg["tiers"].items() if routing else []):
         print(f"  {t:<9}{len(rxs)} model pattern(s) → {', '.join(cfg['policy'].get(t, [])) or '(nothing)'}")
@@ -237,6 +259,8 @@ def run(existing: dict | None = None) -> dict:
     if choice == 0:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(cfg, indent=2))
+        if statusline is not None:
+            print(f"  Claude status line: {claude_settings.install() if statusline else claude_settings.remove()}")
         print(f"  {GREEN}saved{RESET}. Change it any time with agentmeter setup, or Settings in the menu bar.")
         print(f"  {DIM}Next: agentmeter shows this {per.name}; agentmeter doctor checks everything is found.{RESET}")
     else:

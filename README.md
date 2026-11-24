@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="The agentmeter menu bar item showing TOKENS 2.18M, with its menu open: this week's tokens, cost and sessions, the cost split, Claude's 5-hour and weekly limits, tokens per model, and last week's total">
+  <img src="docs/images/hero.png" alt="The agentmeter menu bar item showing TOKENS 2.18M, with its menu open: this week\'s tokens, cost and sessions, token usage split by models, Claude\'s 5-hour and weekly limits, last week, and the actions">
 </p>
 
 <p align="center"><sub>Screenshots use demo data.</sub></p>
@@ -71,6 +71,7 @@ This week · since Fri 6 Nov · cost at API prices
 #### 2. Models
 
 ```
+Token usage split by models
 claude-opus-5-5     ██████────   1.23M   $16.60
 gpt-5.3-codex       ███───────    610k    $3.90
 ```
@@ -85,7 +86,7 @@ Claude 5-hour   ██████────   62%   resets 18:44
 Claude week     ████──────   41%   resets Mon 16 Nov
 ```
 
-How much of each subscription limit you have used, the same figures as Claude Code's `/usage`. Green below 70%, orange from 70%, red from 90%. agentmeter never goes online: it reads the copy Claude Code saves in `~/.claude.json`, and the limits Codex writes into its logs. Once a reset time has passed the reading is out of date, so the bars turn grey; opening `/usage` in Claude Code refreshes it. API-key users have no plan limits, so this part is left out. See [Plan limits](docs/configuration.md#plan-limits).
+How much of each subscription limit you have used, the same figures as Claude Code's `/usage`. Green below 70%, orange from 70%, red from 90%. agentmeter never goes online. With the Claude status line on (`agentmeter setup` offers it), Claude Code hands agentmeter the limits after every reply; without it, agentmeter reads the copy `/usage` saves, which is only as recent as the last time you opened `/usage`. Codex writes its limits into its logs. Once a limit resets, its row shows when ("reset at 07:38") until the next reading. API-key users have no plan limits, so this part is left out. See [Plan limits](docs/configuration.md#plan-limits).
 
 #### 4. Last week
 
@@ -97,7 +98,7 @@ Last week's tokens and cost, and how this week compares so far. Hover for last w
 
 #### 5. Actions
 
-- **Open full view… (⌘O):** `agentmeter tui` in Terminal. Clicking this week or any model opens it too.
+- **Open full view… (⌘O):** `agentmeter tui` in Terminal. Clicking a model, a plan limit or a cost row opens it too; the grey captions are labels, not buttons.
 - **Reports:** the latest saved reports with their totals; each opens as Markdown. One is written when each week ends, and never changed after.
 - **Settings:** **Tools, window and routing…** asks the setup questions again in Terminal. **Open config file** opens `~/.config/agentmeter/config.json` for settings the questions don't cover, like extra prices. **Check setup…** runs `agentmeter doctor`.
 - **Refresh (⌘R):** re-reads the logs. The menu also refreshes every 15 minutes and each time you open it.
@@ -105,7 +106,7 @@ Last week's tokens and cost, and how this week compares so far. Hover for last w
 ## Any range, any time
 
 <p align="center">
-  <img src="docs/images/terminal.png" width="680" alt="agentmeter in a terminal: four weeks with tokens, cost and change, then this week's models in a table with share bars, cost and change">
+  <img src="docs/images/terminal.png" width="680" alt="agentmeter in a terminal: four weeks with tokens, cost and change, then this week\'s models in a table with share bars, cost and change, and Claude\'s plan limits">
 </p>
 
 ```sh
@@ -124,12 +125,12 @@ Any range: `agentmeter --today`, `--since 6h`, `--from 2026-10-01 --to 2026-10-1
 
 Cost is what the tokens would cost at each vendor's API list prices, bundled and dated in the code. On a subscription it isn't your bill, but it's a fair way to compare weeks and models. [How it's worked out](docs/configuration.md#cost-prices).
 
-Plan limits (Claude's and Codex's 5-hour and weekly) come from the copy each tool already keeps on disk, so agentmeter still never goes online. [Details](docs/configuration.md#plan-limits).
+Plan limits (Claude's and Codex's 5-hour and weekly) come from what each tool hands over locally, so agentmeter still never goes online. For Claude Code, `agentmeter setup` offers to be its status line, which keeps them current after every reply. [Details](docs/configuration.md#plan-limits).
 
 ## A report every week
 
 <p align="center">
-  <img src="docs/images/report.png" width="760" alt="A weekly report: total tokens, the change from the previous week, and a per-model table with previous figures">
+  <img src="docs/images/report.png" width="760" alt="A weekly report: total tokens and cost, what the cost is made of, the change from the previous week, a per-model table with previous figures, and the largest sessions">
 </p>
 
 When a week ends, agentmeter saves it to `~/.local/share/agentmeter/reports/`, as Markdown to read and JSON for scripts. Reports are written once and kept. Claude Code deletes its logs after 30 days, so the saved reports become your history.

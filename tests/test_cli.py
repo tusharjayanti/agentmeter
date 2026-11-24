@@ -222,3 +222,33 @@ def test_reports_save_list_and_print(tmp_path):
 def test_setup_help_does_not_prompt(tmp_path):
     r = run(tmp_path, "setup", "--help")
     assert r.returncode == 0 and "setup questions" in r.stdout
+
+
+def test_statusline_command(tmp_path):
+    cfg = _two_weeks(tmp_path)
+    (tmp_path / "cfg.json").write_text(json.dumps(cfg))
+    env = {**os.environ, "HOME": str(tmp_path), "AGENTMETER_CONFIG": str(tmp_path / "cfg.json"), "AGENTMETER_NO_WIZARD": "1"}
+    go = lambda stdin, *a: subprocess.run([sys.executable, "-m", "agentmeter", "statusline", *a], input=stdin, env=env,
+                                          cwd=REPO, capture_output=True, text=True)
+    r = go(json.dumps({"rate_limits": {"five_hour": {"used_percentage": 41.4, "resets_at": 4102444800},
+                                       "seven_day": {"used_percentage": 22, "resets_at": 4102444800}}}))
+    assert r.returncode == 0 and "tokens this week · 5h 41% · week 22%" in r.stdout
+    saved = json.loads((tmp_path / ".local/share/agentmeter/limits/claude.json").read_text())
+    assert saved["windows"]["five_hour"]["used_percentage"] == 41.4
+    assert "Claude limits: 5-hour 41%" in run(tmp_path, "--today").stdout              # the CLI reads it back
+    assert go("not json").returncode == 0 and go("").returncode == 0                   # never fails Claude Code
+    assert go("{}", "--quiet").stdout == ""
+
+
+def test_limits_line_wraps_the_same_in_colour(tmp_path):
+    lim = tmp_path / ".local/share/agentmeter/limits"; lim.mkdir(parents=True)
+    w = {"used_percentage": 62, "resets_at": 4102444800, "as_of": "2026-11-12T16:00:00+00:00"}
+    lim.joinpath("claude.json").write_text(json.dumps({"windows": {"five_hour": w, "seven_day": {**w, "used_percentage": 41}}}))
+    import re
+    for extra in ({}, {"FORCE_COLOR": "1"}):
+        env = {**os.environ, "HOME": str(tmp_path), "AGENTMETER_CONFIG": str(tmp_path / "none.json"),
+               "AGENTMETER_NO_WIZARD": "1", **extra}
+        env.pop("NO_COLOR", None)
+        out = subprocess.run([sys.executable, "-m", "agentmeter", "--today"], env=env, cwd=REPO, capture_output=True, text=True).stdout
+        first = next(re.sub(r"\x1b\[[0-9;]*m", "", l) for l in out.splitlines() if "Claude limits" in l)
+        assert "5-hour 62%" in first and "week 41%" in first and len(first) <= 80   # both limits on one line

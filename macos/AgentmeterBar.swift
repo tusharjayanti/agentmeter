@@ -292,7 +292,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // screenshot builds only (swiftc -D SCREENSHOT): open the menu once data has loaded
                 if !self.shotTaken { self.shotTaken = true
                     // move the pointer out of the way so no row is highlighted in the picture
-                    CGWarpMouseCursorPosition(CGPoint(x: 0, y: NSScreen.main?.frame.height ?? 900))
+                    CGWarpMouseCursorPosition(CGPoint(x: 1, y: 1))   // top-left of the main display, away from the menu
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.item.button?.performClick(nil) } }
                 #endif
                 self.item.button?.toolTip = s.error ?? "agentmeter: tokens this \(s.name)"
@@ -310,7 +310,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if action != nil { it.target = self }
         let font = mono ? NSFont.monospacedSystemFont(ofSize: size, weight: .regular) : NSFont.menuFont(ofSize: size)
         it.attributedTitle = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: color])
-        it.isEnabled = true
+        // an information line has no action, so it is disabled: no hover highlight, no click that only closes the menu
+        it.isEnabled = action != nil
         return it
     }
 
@@ -404,9 +405,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let full = #selector(openFullView)
             let tip = "Click for the full view"
             // 1. this window: caption, then the headline with what it is made of in a submenu
-            let cap = text("This \(s.name) · since \(since(s.thisPeriod)) · cost at API prices", size: 12, color: .secondaryLabelColor, action: full)
-            cap.toolTip = tip
-            menu.addItem(cap)
+            menu.addItem(text("This \(s.name) · since \(since(s.thisPeriod)) · cost at API prices", size: 12, color: .secondaryLabelColor))
             let head = text("\(fmt(cur)) tokens · \(money(s.cost(s.thisPeriod))) · \(sessions) session\(sessions == 1 ? "" : "s")", size: 15)
             // one colour per model, the same in this week's rows and last week's submenu
             let rows = s.rows(s.thisPeriod), lastRows = s.rows(s.lastPeriod)
@@ -420,7 +419,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             made.addItem(text("What the cost is made of", size: 11, color: .secondaryLabelColor))
             let costTotal = parts.reduce(0) { $0 + $1.1 }
             for (name, dollars) in parts {
-                let it = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+                let it = NSMenuItem(title: name, action: full, keyEquivalent: "")   // data rows open the full view
+                it.target = self
+                it.toolTip = tip
                 it.attributedTitle = barRow(name, width: width, share: costTotal > 0 ? dollars / costTotal : 0, value: "",
                                             extra: money(dollars), colour: costColour[name] ?? .systemGray)
                 made.addItem(it)
@@ -430,9 +431,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             made.addItem(text("\(fmt(s.total(s.thisPeriod))) tokens including cache reads", size: 11, color: .secondaryLabelColor))
             made.addItem(text("Tokens above leave cache reads out: input, cache writes, output", size: 11, color: .secondaryLabelColor))
             head.submenu = made
+            head.isEnabled = true        // opens its submenu
             menu.addItem(head)
             menu.addItem(.separator())
-            // 2. models
+            // 2. models: the bar is each model's share of this window's tokens
+            menu.addItem(text("Token usage split by models", size: 11, color: .secondaryLabelColor))
             if rows.isEmpty { menu.addItem(text("No sessions yet this \(s.name)", color: .secondaryLabelColor, action: full)) }
             for r in rows {
                 let it = NSMenuItem(title: r.model, action: full, keyEquivalent: "")
@@ -448,13 +451,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(text("Plan limits · \(s.limitsCaption)", size: 11, color: .secondaryLabelColor))
                 for l in s.limitRows {
                     let hue: NSColor = l.stale ? .systemGray : l.percent >= 90 ? .systemRed : l.percent >= 70 ? .systemOrange : .systemGreen
-                    let it = NSMenuItem(title: l.label, action: nil, keyEquivalent: "")
-                    it.attributedTitle = barRow(l.label, width: width, share: l.percent / 100, value: "\(Int(l.percent))%",
-                                                extra: l.stale ? "" : l.note, extraRight: false, colour: hue, dim: l.stale)
+                    let it = NSMenuItem(title: l.label, action: full, keyEquivalent: "")   // data rows open the full view
+                    it.target = self
+                    it.toolTip = tip
+                    // a window that has reset since the reading: its old percentage no longer applies, so no bar and no number
+                    it.attributedTitle = barRow(l.label, width: width, share: l.stale ? 0 : l.percent / 100,
+                                                value: l.stale ? "–" : "\(Int(l.percent))%",
+                                                extra: l.note, extraRight: false, colour: hue, dim: l.stale)
                     menu.addItem(it)
-                }
-                if s.limitRows.contains(where: { $0.stale }) {
-                    menu.addItem(text("Out of date: open /usage in Claude Code to refresh", size: 11, color: .secondaryLabelColor))
                 }
             }
             menu.addItem(.separator())
@@ -482,7 +486,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if lastRows.isEmpty { sub.addItem(text("No sessions", color: .secondaryLabelColor)) }
             sub.addItem(.separator())
             let hasReport = FileManager.default.fileExists(atPath: reportsURL.appendingPathComponent("\(s.lastPeriod).md").path)
-            sub.addItem(action(hasReport ? "Open its report" : "Open full view", #selector(openLastPeriod)))
+            sub.addItem(action(hasReport ? "Open last \(s.name)'s report" : "Open full view…", #selector(openLastPeriod)))
             last.submenu = sub
             menu.addItem(last)
         }

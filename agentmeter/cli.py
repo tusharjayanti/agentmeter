@@ -174,6 +174,39 @@ def reports_cmd(argv):
           f"agentmeter reports last prints the latest; agentmeter reports DATE any other{st.reset}")
 
 
+def statusline(argv):
+    """Claude Code's status line command. Claude Code runs it after every reply with JSON on stdin
+    (https://code.claude.com/docs/en/statusline.md); the plan limits in it are kept for the menu and
+    reports, and one short line is printed for Claude Code's status bar. Must be quick and must never
+    fail: any error still prints a line and exits 0."""
+    from .limits import record_statusline
+    quiet = "--quiet" in argv                 # record only, for people who chain it from their own status line
+    try:
+        data = json.loads(sys.stdin.read() or "{}")
+    except (ValueError, OSError):
+        data = {}
+    record_statusline(data)
+    if quiet:
+        return
+    parts = []
+    try:
+        cfg = load_config()
+        per = Periods.from_config(cfg)
+        cur = per.current()
+        tools = [t for t in cfg.get("tools") or [] if t not in adapters.REMOVED] or None
+        weekly, _ = aggregate(collect(tools, cfg.get("roots", {}), since([cur]), quiet=True), Policy(cfg),
+                              by_period(per, [cur]), Prices(cfg.get("prices")))
+        parts.append(f"{fmt(sum(r['fresh'] for r in weekly if r['period'] == cur))} tokens this {per.name}")
+    except Exception:  # noqa: BLE001  a status line must always print something
+        pass
+    rl = data.get("rate_limits") if isinstance(data, dict) else None
+    for key, name in (("five_hour", "5h"), ("seven_day", "week")):
+        w = rl.get(key) if isinstance(rl, dict) else None
+        if isinstance(w, dict) and isinstance(w.get("used_percentage"), (int, float)):
+            parts.append(f"{name} {w['used_percentage']:.0f}%")
+    print(" · ".join(parts) or "agentmeter")
+
+
 def doctor(argv):
     ap = argparse.ArgumentParser(prog="agentmeter doctor",
                                  description="Is it working: config, tools found, windows, reports, plan limits, background parts. "
@@ -223,15 +256,24 @@ def doctor(argv):
     else:
         print(f"  none yet in {tilde(d)}")
 
-    from .limits import age
+    from .limits import age, source
+    from . import claude_settings
     print(head("plan limits"))
     lims = all_limits()
     if not lims:
-        print(f"  {st.dim}none found (API-key users have none; Claude Code keeps its copy in ~/.claude.json){st.reset}")
+        print(f"  {st.dim}none found (API-key users have none){st.reset}")
+    src = {"statusline": "from Claude Code's status line", "usage": "from Claude Code's /usage copy"}
     for tool in dict.fromkeys(x["tool"] for x in lims):
         mine = [x for x in lims if x["tool"] == tool]
-        stale = ", out of date" + (": open /usage in Claude Code" if tool == "Claude" else "") if any(x["stale"] for x in mine) else ""
-        print(f"  {tool}: {age(mine[0])}{stale}")
+        how = src.get(source(), "") if tool == "Claude" else "from its session logs"
+        print(f"  {tool:<7}{how}, {age(mine[0])}")
+    sl = claude_settings.status()
+    if sl == "agentmeter":
+        print(f"  {st.dim}status line on: Claude's limits update after every Claude Code reply{st.reset}")
+    elif "claude-code" in (cfg.get("tools") or ["claude-code"]):
+        why = "another status line is set" if sl == "other" else "status line off"
+        print(f"  {st.dim}{why}: Claude's limits update only when you open /usage.\n"
+              f"  `agentmeter setup` can turn on agentmeter's status line so they stay current.{st.reset}")
 
     print(head("background"))
     home = Path.home()
@@ -361,13 +403,13 @@ def limit_lines(st, limits) -> list[str]:
             continue
         parts = []
         for x in mine:
-            hue = st.dim if x["stale"] else st.red if x["percent"] >= 90 else st.yellow if x["percent"] >= 70 else ""
+            if x["stale"]:                   # its window has reset since the reading: the old percentage no longer applies
+                parts.append(f"{x['name']} {st.dim}{short(x)}{st.reset}")
+                continue
+            hue = st.red if x["percent"] >= 90 else st.yellow if x["percent"] >= 70 else ""
             pct = f"{hue}{x['percent']}%{st.reset}" if hue else f"{x['percent']}%"
-            parts.append(f"{x['name']} {pct}" + ("" if x["stale"] else f" {short(x)}".rstrip()))
-        note = age(mine[0])
-        if any(x["stale"] for x in mine):
-            note += ", out of date" + (": open /usage in Claude Code" if tool == "Claude" else "")
-        out.append(f"{tool} limits: " + " · ".join(parts) + f" {st.dim}· {note}{st.reset}")
+            parts.append(f"{x['name']} {pct} {short(x)}".rstrip())
+        out.append(f"{tool} limits: " + " · ".join(parts) + f" · {st.dim}{age(mine[0])}{st.reset}")
     return out
 
 
@@ -505,6 +547,8 @@ def main(argv=None):
         return doctor(argv[1:])
     if cmd == ["reports"]:
         return reports_cmd(argv[1:])
+    if cmd == ["statusline"]:
+        return statusline(argv[1:])
     if cmd == ["tui"]:
         from .tui import main as tui_main
         return tui_main(argv[1:])
@@ -656,7 +700,7 @@ def main(argv=None):
                               for k, v in parts.items()}
         shown = [x for x in limits if x["percent"] or "(" not in x["name"]]
         meta["limit_rows"] = [{"label": f"{x['tool']} {x['name']}", "percent": x["percent"], "stale": x["stale"],
-                               "note": short(x)} for x in shown]
+                               "note": short(x)} for x in shown]      # stale: its window reset since; note says when
         meta["limits_caption"] = " · ".join(f"{t} {age(next(x for x in shown if x['tool'] == t))}"
                                             for t in dict.fromkeys(x["tool"] for x in shown))
         # the latest saved reports, newest first, for the menu's Reports submenu
