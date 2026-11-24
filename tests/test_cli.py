@@ -119,7 +119,7 @@ def test_colour_only_when_asked(tmp_path):
 
 def test_table_fits_80_columns_and_has_cost(tmp_path):
     cfg = _two_weeks(tmp_path)
-    out = run(tmp_path, "--periods", "2", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
+    out = run(tmp_path, "--period", "2026-11-04", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
     assert max(len(line) for line in out.splitlines()) <= 80
     assert "╭" in out and "│ gpt-5 " in out and "$0.15" in out    # 150 tokens at $1000 per million
     assert "↑50%" in out and "API prices of" in out
