@@ -409,7 +409,7 @@ def limit_lines(st, limits) -> list[str]:
             hue = st.red if x["percent"] >= 90 else st.yellow if x["percent"] >= 70 else ""
             pct = f"{hue}{x['percent']}%{st.reset}" if hue else f"{x['percent']}%"
             parts.append(f"{x['name']} {pct} {short(x)}".rstrip())
-        out.append(f"{tool} limits: " + " · ".join(parts) + f" {st.dim}· {age(mine[0])}{st.reset}")
+        out.append(f"{tool} limits: " + " · ".join(parts) + f" · {st.dim}{age(mine[0])}{st.reset}")
     return out
 
 
