@@ -52,7 +52,7 @@ def test_status_json_shape(tmp_path):
 
 
 def test_check(tmp_path):
-    r = run(tmp_path, "check", "--weeks", "520")
+    r = run(tmp_path, "check", "--weeks", "520", cfg={"routing": True})     # old spelling of doctor
     assert r.returncode == 0, r.stderr
     assert "claude-opus-5-5" in r.stdout and "strong" in r.stdout
     bad = run(tmp_path, "check", cfg={"tiers": {"top": ["(unclosed"]}})
@@ -119,7 +119,7 @@ def test_colour_only_when_asked(tmp_path):
 
 def test_table_fits_80_columns_and_has_cost(tmp_path):
     cfg = _two_weeks(tmp_path)
-    out = run(tmp_path, "--periods", "2", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
+    out = run(tmp_path, "--period", "2026-11-04", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
     assert max(len(line) for line in out.splitlines()) <= 80
     assert "╭" in out and "│ gpt-5 " in out and "$0.15" in out    # 150 tokens at $1000 per million
     assert "↑50%" in out and "API prices of" in out
@@ -178,6 +178,47 @@ def test_limits_and_cost_split_in_output(tmp_path):
     assert "Claude limits" not in past                                     # limits are about now
     assert "cost: \n" not in past and "cost:" not in past                   # $0.0002 rounds away: no empty split line
     priced = run(tmp_path, "--period", "2026-11-04", cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
-    assert "cost: input $0.15" in priced
+    assert "cost: input" not in priced                                      # the split is detail
+    assert "cost: input $0.15" in run(tmp_path, "--period", "2026-11-04", "--detail",
+                                      cfg={**cfg, "prices": {"gpt-5": {"input": 1000, "output": 0}}}).stdout
     d = json.loads(run(tmp_path, "--json", cfg=cfg).stdout)
     assert d["limits"][0]["name"] == "5-hour" and d["config"]["limit_lines"][0].startswith("Claude limits: 5-hour 4%")
+
+
+def test_help_lists_commands_and_hides_old_spellings(tmp_path):
+    out = run(tmp_path, "--help").stdout
+    for cmd in ("agentmeter tui", "agentmeter reports", "agentmeter setup", "agentmeter doctor", "--detail", "--today"):
+        assert cmd in out
+    for old in ("--weeks", "--sessions", "--tools", "--prompts", "--save", "agentmeter init", "agentmeter check"):
+        assert old not in out
+    assert max(len(line) for line in out.splitlines()) <= 80
+
+
+def test_doctor(tmp_path):
+    r = run(tmp_path, "doctor")
+    assert r.returncode == 0, r.stderr
+    for section in ("config", "tools", "windows", "reports", "background", "routing"):
+        assert f"\n{section}\n" in r.stdout
+    assert "claude-code  reading" in r.stdout and "off: tokens only" in r.stdout
+    assert "work categories" not in r.stdout                                # routing detail only when routing is on
+    assert "work categories" in run(tmp_path, "doctor", cfg={"routing": True}).stdout
+    assert run(tmp_path, "doctor", cfg={"tiers": {"top": ["(unclosed"]}}).returncode == 1
+
+
+def test_reports_save_list_and_print(tmp_path):
+    cfg = _two_weeks(tmp_path)
+    d = tmp_path / "rep"
+    empty = run(tmp_path, "reports", "--dir", str(d), cfg=cfg)
+    assert "No reports yet" in empty.stdout
+    saved = run(tmp_path, "reports", "save", "--dir", str(d), cfg=cfg).stdout
+    assert "wrote" in saved and (d / "2026-11-02.md").exists()
+    listed = run(tmp_path, "reports", "--dir", str(d), cfg=cfg).stdout
+    assert "Mon 2 Nov – Sun 8 Nov 2026" in listed and "↑50%" in listed
+    assert run(tmp_path, "reports", "last", "--dir", str(d), cfg=cfg).stdout.startswith("# agentmeter: Mon 2 Nov")
+    assert run(tmp_path, "reports", "2026-10-28", "--dir", str(d), cfg=cfg).stdout.startswith("# agentmeter: Mon 26 Oct")
+    assert run(tmp_path, "reports", "2020-01-01", "--dir", str(d), cfg=cfg).returncode != 0
+
+
+def test_setup_help_does_not_prompt(tmp_path):
+    r = run(tmp_path, "setup", "--help")
+    assert r.returncode == 0 and "setup questions" in r.stdout
